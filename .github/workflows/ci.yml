@@ -48,6 +48,10 @@ jobs:
       - name: ./gradlew check
         run: ./gradlew check
 
+      # Two instances in two processes: A from its installed distribution, B subscribing to it.
+      - name: ./gradlew integrationTest
+        run: ./gradlew integrationTest
+
       # The script has to write, on this operating system too, exactly the line that is committed.
       - name: scripts/sync-gradle-wrapper.sh leaves the wrapper as it is
         run: |

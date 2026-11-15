@@ -195,9 +195,24 @@ Responsibilities:
   `TableDefinition` and one value function per column (String, long, int, double and Instant
   columns). The table is created on first use, from a script or inside `engine()`, and records
   offered before that are kept.
-- **Remote tables**: `RemoteTables.subscribe(upstream, tableName)` hides how the subscription is
-  made (URI resolution when anonymous, a Barrage client session when authenticated) and reports
-  connection state as a small status table.
+- **Remote tables**: a host names its upstreams (`builder.upstream(UpstreamSettings)`), and a
+  script gets one with `host.remote("dhc-a")`. `subscribe(tableName)` returns a live copy of the
+  upstream's table over a Barrage session of our own, with or without a pre-shared key (F12),
+  and `statusTable()` returns one row about the connection: `State` (`CONNECTING`, `CONNECTED`,
+  `DISCONNECTED`), `Since`, `Subscriptions`, `Reconnects`, `LastError` and a `Timestamp` that
+  moves once a second. At start it waits for the upstream, up to
+  `DHC_UPSTREAM_CONNECT_TIMEOUT_SECONDS` (60); a refused login is an answer, not an outage, and
+  stops the start at once with the setting to correct.
+- **When an upstream goes away** (F13): subscribed tables fail and stay failed, so the framework
+  watches them. On failure it reports `DISCONNECTED`, tries to reach the upstream again every
+  quarter of a second, and once that works it runs the application scripts again, which
+  subscribe anew and rebuild what they derive. Three consequences, each checked by a test:
+  a script that uses `host.remote` has to be a list of definitions that can run more than once;
+  a table has to be looked up by name each time (`table(name)`), because after a reconnect the
+  name refers to a new table, and a table object from before the outage, a panel open in the
+  web IDE included, keeps its last rows and has to be reopened; and the upstream's history is
+  its own business, so if it came back empty the new tables start empty. The status table is the
+  instance's own and keeps working throughout.
 - **Preflight checks with actionable messages**: missing JVM flags (F3), running from a nested
   fat jar (F6), port in use, directory not writable.
 - **Process side effects** (F5): one policy object, `SideEffectPolicy`, with three switches:
@@ -217,7 +232,10 @@ makes a key up and logs it when unset), `DHC_APP_MODULES`, `DHC_APP_DIR` and `DH
 (a directory under the system temporary directory, per application). An application's own
 settings are read the same way through `EmbedSettings.value(key)`; role A's are `DHC_GEN_SEED`
 (42), `DHC_GEN_RATE` (5 executions a second), `DHC_GEN_ORDERS` (20 open orders),
-`DHC_GEN_EVENT_LIMIT` (0, no limit) and `DHC_RING_CAPACITY` (10,000).
+`DHC_GEN_EVENT_LIMIT` (0, no limit), `DHC_RING_CAPACITY` (10,000) and `DHC_GEN_START_TIME` (now).
+An upstream `dhc-a` is described by `DHC_UPSTREAM_DHC_A_URL` (`dh+plain://host:port`, or
+`dh://host:port` for TLS) and, if it asks for one, `DHC_UPSTREAM_DHC_A_PSK`, which is a secret
+and comes from the environment only.
 
 ### 4.2 `embed-spring`
 
@@ -254,8 +272,11 @@ A JUnit 5 extension that starts one embedded instance per test JVM on free ports
 assertions against the oracle, a helper that launches another app's distribution as a child
 process, and `Probe`, a small command-line Barrage client used by tests and by `scripts/smoke.sh`.
 P2 delivers the extension, `TableAssertions` and `LiveThreads` (threads left behind after a
-stop); the launcher and the probe come with the phases that need them (P3, P4). Because
-Deephaven is one per JVM, the build gives every test class a JVM of its own.
+stop). P4 delivers `ChildApp`, which runs another application's installed distribution as a
+process and can stop or kill it, and `Probe`, which reads a table's row count and column sums
+over Arrow Flight; its key comes from the environment variable `DHC_PROBE_PSK`, never the
+command line. Because Deephaven is one per JVM, the build gives every test class a JVM of its
+own.
 
 ## 5. The two roles
 
@@ -288,15 +309,20 @@ role.start();   // executions begin to arrive
 ### Role B, `dhc-b-module`: subscribe to A and derive
 
 ```groovy
-// src/main/appmode/10_tables.groovy
+// src/main/appmode/dhc-b/10_tables.groovy
 a             = host.remote("dhc-a")                         // upstream address from config
 execs_a       = a.subscribe("execs")
 orders_a      = a.subscribe("orders")
 cum_by_symbol = orders_a.view("Symbol", "CumQty").sumBy("Symbol")
 exec_rate     = execs_a.updateView("Bin = lowerBin(TransactTime, MINUTE)").countBy("Execs", "Bin")
 open_orders   = orders_a.where("LeavesQty > 0")
-feed_status   = a.statusTable()                              // connected, last update, lag
+feed_status   = a.statusTable()                              // connected or not, since when, reconnects
 ```
+
+Role B has no Java of its own to run: `RoleB.bind` tells the instance where A is, and the rest
+is the framework's `RemoteTables`. This script is run again after every reconnect, which is why
+it is definitions only. `dhc-b-java` is its plain Java host, on port 10001, and waits for A at
+start.
 
 The Spring host for B adds what a business application would: `GET /api/orders/{id}` and
 `GET /api/summary` reading table snapshots through `engine()`, the health indicators, and a page
@@ -393,7 +419,7 @@ and declare a health check. The compose file works with Podman and Docker.
 |---|---|---|
 | T1 unit | settings precedence, generator determinism, oracle, config validation | plain JUnit, no engine |
 | T2 engine | role A's tables equal the oracle for a fixed seed and event count; engine access helper; publisher batching | one embedded instance per test JVM (F10) |
-| T3 two-process | A started as a child process, B subscribes; B's tables equal the oracle; A stopped and restarted | `integrationTest` task |
+| T3 two-process | A started as a child process from its installed distribution, B subscribes in the test's JVM; B's tables equal the oracle; with a key, a wrong key, no key; A killed and restarted, stopped and restarted; the probe | `integrationTest` task of `dhc-b-module` |
 | T4 Spring | context starts with embedded Deephaven, REST and health answer, shutdown is clean | `@SpringBootTest` |
 | T5 packaging | the installed distribution and the extracted Spring layout both start and pass the smoke script; the fat jar is refused with the expected message | CI job |
 
@@ -401,8 +427,8 @@ The deterministic generator with an event limit is what makes T2 to T4 exact rat
 "eventually something arrives".
 
 CI: GitHub Actions with Temurin 21, on Linux and on Windows in Git Bash, running
-`./gradlew check`, the wrapper script and a start of the installed distribution from its start
-script; `integrationTest` and the smoke script join when they exist. A macOS runner is added in
+`./gradlew check`, `./gradlew integrationTest`, the wrapper script and a start of the installed
+distribution from its start script; the smoke script joins when it exists. A macOS runner is added in
 P7.
 
 ## 9. Risks and how the plan answers them
@@ -414,8 +440,8 @@ P7.
 | WebSocket or servlet clashes return when a host adds libraries | F8 | exclusion in the Spring convention plugin; T5 runs the real packaging |
 | Someone ships the fat jar | F6 | start-up guard with a clear message; T5 negative test |
 | Deephaven's process-wide handlers surprise the host | F5 | explicit side-effect policy per host, tested in T4 |
-| B does not recover when A restarts | not yet tested | phase 4 measures the real behaviour first, then implements re-subscription and documents the limits |
-| Authenticated subscription differs from the anonymous path | not yet tested | phase 4 spike before the helper's API is frozen |
+| B does not recover when A restarts | F13: measured, it does not | `RemoteTables` reconnects and has the scripts run again; T3 kills and restarts A and holds B to the documented behaviour |
+| Authenticated subscription differs from the anonymous path | F12: it does; subscribing by address cannot log in | `RemoteTables` always makes its own session; T3 runs with a key, a wrong key and no key |
 | Upgrading Deephaven moves internal module names | F1 uses semi-internal Dagger modules | all of it is in one class in `embed-core`; an upgrade checklist in the docs |
 | Licence | the engine is under the Deephaven Community License, this repository's code is MIT | stated in the README; to be read before embedding in a shipped product |
 

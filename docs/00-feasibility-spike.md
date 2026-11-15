@@ -129,6 +129,27 @@ is expected to fail; whether the IDE still opens cleanly has not been seen. The 
 gRPC interceptor in our component that rewrites those paths, and it needs a Windows machine or
 a browser test in CI to verify. It is a P7 item unless Windows is where the demo will be shown.
 
+**F12. A subscription by address cannot log in; a session of our own can.** Measured in phase
+P4. Deephaven resolves `dh+plain://host:port/scope/<table>` through `BarrageTableResolver`,
+which opens its session with an empty configuration; upstream's source says so in a TODO
+(deephaven-core#3421). So the way the spike subscribed (S4) works only against an upstream with
+anonymous access. A session made with `BarrageSessionFactoryConfig`, from the server's own
+scheduler, allocator and channel factory, takes an authentication value, and with
+`io.deephaven.authentication.psk.PskAuthenticationHandler <key>` it subscribes to a
+key-protected upstream. `RemoteTables` therefore always makes its own session, with or without
+a key. A wrong key and a missing key are both refused at once by the upstream
+(`UNAUTHENTICATED`), in under two seconds, and are not retried.
+
+**F13. A subscribed table does not survive its upstream going away.** Measured in phase P4,
+with A as a second process. Within about half a second of A being killed, B's subscribed table
+and every table derived from it are marked failed. They keep the rows they had, and can still be
+read. When A is started again they stay failed: a Deephaven table cannot be pointed at a new
+source, and nothing re-subscribes by itself. An orderly stop of A has the same effect as a kill.
+So B does **not** recover on its own. What the framework does about it is in
+[design section 4.1](01-design.md): it notices the failure, shows it in a status table, keeps
+trying to reach the upstream, and then runs the application scripts again so that they subscribe
+anew and rebuild what they derive.
+
 ## The embedding core, as it ran
 
 ```java
@@ -194,8 +215,8 @@ Start-up settings used: `-Ddeephaven.console.type=groovy`, `-Dhttp.port=<port>`,
 
 ## Not yet tested
 
-- An authenticated subscription from B to A (the spike ran anonymous).
-- What B's tables do when A restarts (reconnect behaviour).
+- ~~An authenticated subscription from B to A~~: done in P4, finding F12.
+- ~~What B's tables do when A restarts~~: done in P4, finding F13.
 - Subscribing to a blink table across instances, as opposed to an append-only one.
 - Spring Boot 4.x, macOS and Windows, and running inside a container.
 - Proxying the Deephaven UI through the Spring port (single origin).

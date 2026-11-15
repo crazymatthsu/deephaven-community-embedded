@@ -16,9 +16,28 @@ public final class HostBindings {
     public static final String VARIABLE = "host";
 
     private final Map<String, Object> bindings;
+    private volatile Map<String, RemoteTables> remotes = Map.of();
 
     HostBindings(Map<String, Object> bindings) {
         this.bindings = Map.copyOf(bindings);
+    }
+
+    void remotes(Map<String, RemoteTables> remotes) {
+        this.remotes = Map.copyOf(remotes);
+    }
+
+    /**
+     * Another Deephaven instance whose tables this one subscribes to: {@code host.remote("dhc-a")}
+     * in a script. The host names its upstreams with {@code EmbeddedDeephaven.builder().upstream(...)}.
+     */
+    public RemoteTables remote(String upstreamId) {
+        RemoteTables remote = remotes.get(upstreamId);
+        if (remote == null) {
+            throw new EmbeddedDeephavenException("The host has no upstream called '" + upstreamId + "'. It has: "
+                    + new TreeMap<>(remotes).keySet()
+                    + ". Name upstreams with EmbeddedDeephaven.builder().upstream(UpstreamSettings).");
+        }
+        return remote;
     }
 
     /** The object bound under a name. Fails with the names that do exist when there is none. */
