@@ -10,11 +10,13 @@ import io.deephaven.server.runner.DeephavenApiServer;
 import io.deephaven.server.runner.MainHelper;
 import io.deephaven.server.util.Scheduler;
 import io.deephaven.util.process.ProcessEnvironment;
+import java.io.File;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -143,6 +145,9 @@ public final class EmbeddedDeephaven implements AutoCloseable {
         System.setProperty("deephaven.cacheDir", workDir.resolve("cache").toString());
         System.setProperty("deephaven.configDir", workDir.resolve("config").toString());
         System.setProperty("deephaven.dataDir", workDir.resolve("data").toString());
+        if (System.getProperty(STORAGE_PATH_DEFAULTS) == null) {
+            storagePathDefaults(File.separatorChar).ifPresent(paths -> System.setProperty(STORAGE_PATH_DEFAULTS, paths));
+        }
         switch (settings.authMode()) {
             case ANONYMOUS -> {
                 System.setProperty("AuthHandlers", "io.deephaven.auth.AnonymousAuthenticationHandler");
@@ -155,6 +160,23 @@ public final class EmbeddedDeephaven implements AutoCloseable {
                 settings.preSharedKey().ifPresent(key -> System.setProperty("authentication.psk", key));
             }
         }
+    }
+
+    /** Deephaven's property for the directories its storage service creates at start. */
+    static final String STORAGE_PATH_DEFAULTS = "storage.path.defaults";
+
+    /**
+     * Deephaven 42.4 does not start on Windows as shipped (finding F11). Its storage service
+     * creates {@code /layouts} and {@code /notebooks} below its storage directory, and drops the
+     * leading {@code /} only when that is the platform's file separator. On Windows it is not, the
+     * path then points outside the storage directory, and the service refuses it with "Invalid
+     * path: /layouts" before the server is up. Naming the two directories without the slash gets
+     * the server started.
+     *
+     * @return the value to give Deephaven, or empty where the default works
+     */
+    static Optional<String> storagePathDefaults(char fileSeparator) {
+        return fileSeparator == '/' ? Optional.empty() : Optional.of("layouts,notebooks");
     }
 
     private void bootstrap() throws Exception {
