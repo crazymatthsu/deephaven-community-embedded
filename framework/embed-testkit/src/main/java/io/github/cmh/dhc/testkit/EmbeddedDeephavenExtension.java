@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.ExtensionContext.Namespace;
@@ -41,12 +42,14 @@ public final class EmbeddedDeephavenExtension implements BeforeAllCallback {
     private final String appId;
     private final List<String> modules;
     private final Map<String, Object> bindings;
+    private final UnaryOperator<EmbeddedDeephaven.Builder> configuration;
     private volatile EmbeddedDeephaven deephaven;
 
     private EmbeddedDeephavenExtension(Builder builder) {
         this.appId = builder.appId;
         this.modules = List.copyOf(builder.modules);
         this.bindings = new LinkedHashMap<>(builder.bindings);
+        this.configuration = builder.configuration;
     }
 
     public static Builder forApp(String appId) {
@@ -78,7 +81,7 @@ public final class EmbeddedDeephavenExtension implements BeforeAllCallback {
                 .settings(settings)
                 .sideEffects(SideEffectPolicy.hostKeepsControl());
         bindings.forEach(builder::bind);
-        EmbeddedDeephaven started = builder.build();
+        EmbeddedDeephaven started = configuration.apply(builder).build();
         started.start();
         return started;
     }
@@ -118,6 +121,7 @@ public final class EmbeddedDeephavenExtension implements BeforeAllCallback {
         private final String appId;
         private List<String> modules = List.of();
         private final Map<String, Object> bindings = new LinkedHashMap<>();
+        private UnaryOperator<EmbeddedDeephaven.Builder> configuration = UnaryOperator.identity();
 
         private Builder(String appId) {
             this.appId = appId;
@@ -132,6 +136,12 @@ public final class EmbeddedDeephavenExtension implements BeforeAllCallback {
         /** A host object for the scripts, as {@code host.<name>}. */
         public Builder bind(String name, Object object) {
             bindings.put(name, object);
+            return this;
+        }
+
+        /** Anything else the instance needs, for example a role's bindings: {@code .configure(role::bind)}. */
+        public Builder configure(UnaryOperator<EmbeddedDeephaven.Builder> configuration) {
+            this.configuration = configuration;
             return this;
         }
 
