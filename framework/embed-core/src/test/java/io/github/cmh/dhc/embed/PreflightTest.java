@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /** T1: the checks made before Deephaven is touched. No engine involved. */
@@ -60,6 +61,13 @@ class PreflightTest {
             assertTrue(error.getMessage().contains("Port " + taken.getLocalPort()), error.getMessage());
             assertTrue(error.getMessage().contains("DHC_HTTP_PORT"), error.getMessage());
         }
+    }
+
+    @Test
+    void onWindowsDeephavensStorageDirectoriesAreNamedWithoutTheLeadingSlash() {
+        // F11. The effect is checked by the Windows CI job, where the server would not start otherwise.
+        assertEquals(Optional.of("layouts,notebooks"), EmbeddedDeephaven.storagePathDefaults('\\'));
+        assertEquals(Optional.empty(), EmbeddedDeephaven.storagePathDefaults('/'));
     }
 
     @Test

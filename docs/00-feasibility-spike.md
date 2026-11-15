@@ -113,6 +113,22 @@ the same `~/.cache/deephaven` (property `deephaven.cacheDir`, with `deephaven.co
 `deephaven.dataDir`), which holds compiled formula classes. Two instances on one host need their
 own directories.
 
+**F11. Deephaven 42.4 does not start on Windows as shipped.** Found by the first Windows CI run,
+after phase P2. Its storage service (`FilesystemStorageServiceGrpcImpl`, the web IDE's saved
+layouts and notebooks) creates `/layouts` and `/notebooks` below its storage directory at start,
+and removes the leading `/` only if `/` is the platform's file separator. On Windows it is `\`,
+so the path points outside the storage directory and the service fails with
+`INVALID_ARGUMENT: Invalid path: /layouts` before the server is up. Everything else had passed
+there: the build, the build-logic tests and the JVM-flag check.
+
+The framework works around the start: on Windows it sets Deephaven's `storage.path.defaults` to
+`layouts,notebooks`. **What that does not fix:** the web IDE sends the same `/layouts/...` paths
+when it loads and saves layouts and notebooks, and the same code rejects them. So on native
+Windows the tables and the API are expected to work, and saving layouts or notebooks in the IDE
+is expected to fail; whether the IDE still opens cleanly has not been seen. The full fix is a
+gRPC interceptor in our component that rewrites those paths, and it needs a Windows machine or
+a browser test in CI to verify. It is a P7 item unless Windows is where the demo will be shown.
+
 ## The embedding core, as it ran
 
 ```java
