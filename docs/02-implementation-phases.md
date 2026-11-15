@@ -172,4 +172,5 @@ section 10:
    Spring Boot as the primary pair.
 2. **D2, Spring Boot 3.5 or 4.x.** Default: 3.5.16, which is what was tested.
 3. **D6, authentication in the demo.** Default: pre-shared key outside development.
-4. **D8, Java package name.** Default: `io.github.crazymatthsu.dhe`.
+
+Decided: **D8, the Java base package is `io.github.cmh.dhe`** (design section 2).

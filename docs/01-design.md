@@ -80,6 +80,19 @@ take part in `./gradlew check`.
 
 Gradle project paths: `:framework:embed-core`, `:apps:dhc-a-java`, and so on.
 
+Java packages share the base `io.github.cmh.dhe` (decision D8), one sub-package per module:
+
+| Module | Package |
+|---|---|
+| `framework/embed-core` | `io.github.cmh.dhe.embed` |
+| `framework/embed-spring` | `io.github.cmh.dhe.embed.spring` |
+| `framework/embed-testkit` | `io.github.cmh.dhe.testkit` |
+| `framework/orders-model` | `io.github.cmh.dhe.orders` |
+| `apps/dhc-a-module`, `apps/dhc-b-module` | `io.github.cmh.dhe.apps.dhca`, `io.github.cmh.dhe.apps.dhcb` |
+| host apps | `io.github.cmh.dhe.apps.dhca.java`, `...dhca.spring`, `...dhcb.java`, `...dhcb.spring` |
+
+The Gradle group is `io.github.cmh.dhe` as well.
+
 ## 3. Build logic
 
 An included build, `build-logic/`, holds convention plugins written in the Kotlin DSL. Subproject
@@ -323,4 +336,4 @@ These were not specified. The plan proceeds on the default unless changed.
 | D5 | Config format | `.env` files shared by Java, shell and compose | `.properties` or YAML |
 | D6 | Authentication | pre-shared key outside development | anonymous everywhere for a pure demo |
 | D7 | Gradle DSL | Kotlin | Groovy |
-| D8 | Java base package | `io.github.crazymatthsu.dhe` | a company package name |
+| D8 | Java base package | **decided: `io.github.cmh.dhe`** | |
