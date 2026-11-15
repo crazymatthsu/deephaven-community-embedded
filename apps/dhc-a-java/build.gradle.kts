@@ -10,4 +10,6 @@ application {
 
 dependencies {
     implementation(project(":apps:dhc-a-module"))
+
+    testImplementation(project(":framework:embed-testkit"))
 }

@@ -11,6 +11,7 @@ deephaven = "42.4"
 dagger = "2.59.2"          # the version Deephaven 42.4 itself resolves
 spring-boot = "3.5.16"
 junit = "5.13.4"
+logback = "1.5.38"          # SLF4J backend of the plain Java hosts; Spring hosts use Spring's
 
 [libraries]
 deephaven-bom = { module = "io.deephaven:deephaven-bom", version.ref = "deephaven" }
@@ -28,6 +29,8 @@ spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-depe
 spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }
 spring-boot-autoconfigure = { module = "org.springframework.boot:spring-boot-autoconfigure" }
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
+
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }

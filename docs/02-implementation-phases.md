@@ -71,9 +71,28 @@ The feasibility spike, the design and this phase plan. No code.
 **Acceptance**
 
 - `./gradlew :apps:dhc-a-java:run` starts; `http://localhost:10000/ide/` shows the `hello` table.
-- T2 test: start, read `hello`, stop, with no threads left running.
+- T2 test: start, read `hello`, stop, with no threads left running that can be ended (see below).
 - Starting without the JVM flags fails with a message that names them.
 - `installDist` produces a start script that runs the same way.
+
+**Found while building it**, and corrected in the design:
+
+- F5 was partly wrong: `MainHelper.init` does not replace the standard streams, the server's
+  start does. The full list of what changes in the process, and which switch of the policy
+  covers each, is now under F5.
+- Deephaven has no `stop()`. Stopping means running the shutdown tasks it registers, and then
+  ending two thread pools those tasks leave running.
+- "No threads left running" holds for everything that can be ended. Three idle daemon threads
+  owned by process-wide singletons remain (Deephaven's reference cleaner, JNA's cleaner, the
+  JDK's process reaper). The T2 test names them and fails on any other.
+- The host's objects cannot be put into the script session before the server starts; the session
+  cannot be created that early. An application factory in our component does it at the right
+  moment, and no static registry is needed.
+- A module's scripts live below `<id>/`, and the jar carries an index of the module's files,
+  because a jar cannot be listed like a directory.
+- A plain Java host needs an SLF4J backend of its own (Logback); Deephaven brings none.
+- `validateAppModule` runs on the module's classpath, not inside Gradle, so that scripts are
+  parsed by Deephaven's Groovy 3 and not by Gradle's Groovy 4.
 
 ## P3. Role A: mock order executions
 

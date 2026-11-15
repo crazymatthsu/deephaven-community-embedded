@@ -8,9 +8,9 @@ else is decided here, once. Findings "F*n*" are in
 |---|---|---|
 | `dhc.repositories` | the settings of every build | Repositories come from `config/repos/repos.env` and nowhere else. A module that declares its own fails the build. |
 | `dhc.java-conventions` | every Java module | Java 21 toolchain, UTF-8, warnings as errors, JUnit 5, reproducible archives. |
-| `dhc.deephaven-library` | `framework/*`, role modules | Deephaven BOM enforced (F9), Kafka extension excluded (F2), Dagger and its processor (F1), JVM flags on tests (F3). |
-| `dhc.groovy-app-module` | `apps/*-module` | The same as `dhc.deephaven-library` for now. Packaging of `src/main/appmode/` and `validateAppModule` come in P2. |
-| `dhc.embedded-java-app` | plain Java hosts | `application` plugin, the dependency rules, JVM flags on `run`, tests and start scripts (F3), `verifyDeephavenAlignment`. |
+| `dhc.deephaven-library` | `framework/*`, role modules | Deephaven BOM enforced (F9), Kafka extension excluded (F2), Dagger and its processor (F1), JVM flags on tests (F3), a JVM per test class (F10), javac's `classfile` lint off. |
+| `dhc.groovy-app-module` | `apps/*-module` | Everything of `dhc.deephaven-library`, plus the Groovy part in `src/main/appmode/` (`<id>.app` and its scripts under `<id>/`): `validateAppModule` checks it on the module's own classpath, `generateAppModuleIndex` lists its files, and both go into the jar under `META-INF/dhc/app.d/`. A module that does not validate is not packaged. |
+| `dhc.embedded-java-app` | plain Java hosts | `application` plugin, the dependency rules, JVM flags on `run`, tests and start scripts (F3), Logback as the SLF4J backend, `verifyDeephavenAlignment`. `run` gets the development settings (`DHC_AUTH_MODE=anonymous`, a work directory under `build/`) unless the environment sets them; the installed distribution gets neither. |
 | `dhc.embedded-spring-app` | Spring hosts | Spring Boot plugin without `io.spring.dependency-management`, Spring's BOM as a plain platform, Deephaven's versions pinned (F9), Tomcat WebSocket excluded (F8), JVM flags on `bootRun` and tests (F3), `verifyDeephavenAlignment`. `extractBootJar` comes in P5. |
 | `dhc.verify-alignment` | every app (applied by the two app plugins) | `verifyDeephavenAlignment`, part of `check`. |
 
