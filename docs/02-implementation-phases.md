@@ -27,7 +27,10 @@ The feasibility spike, the design and this phase plan. No code.
 - Gradle wrapper 9.2.1, `settings.gradle.kts`, `gradle/libs.versions.toml`.
 - `build-logic/` with the convention plugins of design section 3. `dhe.repositories`,
   `dhe.java-conventions`, `dhe.deephaven-library` and `dhe.verify-alignment` are complete; the
-  app and module plugins exist with their dependency rules and are filled in by later phases.
+  app and module plugins exist with their dependency rules and the mandatory JVM flags (F2, F3,
+  F8, F9) and are filled in by later phases.
+- Fixture builds under `build-logic/src/test/fixtures/`, run with Gradle TestKit as part of
+  `check`, that break each rule and expect the build to fail.
 - Every subproject of the layout created with a build file and a placeholder class or README, so
   `./gradlew projects` shows the final structure.
 - `config/repos/repos.env` with public defaults and `repos.local.env.example`.
@@ -41,6 +44,13 @@ The feasibility spike, the design and this phase plan. No code.
 - `./gradlew :apps:dhc-a-java:dependencies` resolves Deephaven 42.4 with Jetty 12.1.11.
 - `verifyDeephavenAlignment` passes, and fails when a test fixture forces an older Jetty.
 - A module that declares its own repository fails the build.
+
+**Found while building it**
+
+- Spring's BOM as a plain platform still raises thirteen libraries above Deephaven's versions.
+  Spring hosts now pin them (the correction under F9, and design section 3).
+- `verifyDeephavenAlignment` first compared against a reference that a project-wide `force`
+  changed as well, so the forced-Jetty fixture passed. The reference is now detached.
 
 ## P2. `embed-core` and the plain Java host
 
@@ -106,8 +116,9 @@ The feasibility spike, the design and this phase plan. No code.
 
 - `:framework:embed-spring`: auto-configuration, lifecycle, settings binding, health indicators,
   automatic host bindings.
-- `dhe.embedded-spring-app` completed: no dependency-management plugin (F9), Tomcat WebSocket
-  exclusion (F8), `extractBootJar` (F7).
+- `dhe.embedded-spring-app` completed with `extractBootJar` (F7). Its dependency rules (no
+  dependency-management plugin and pinned versions, F9; Tomcat WebSocket exclusion, F8) and the
+  JVM flags on `bootRun` have been in place since P1.
 - `:apps:dhc-b-spring`: role B in Spring Boot, with `GET /api/orders/{id}`, `GET /api/summary`
   and the page at `/` embedding two Deephaven table widgets.
 
@@ -115,7 +126,10 @@ The feasibility spike, the design and this phase plan. No code.
 
 - `./gradlew :apps:dhc-b-spring:bootRun` against a running A: the page shows A's orders, the
   REST endpoints answer, `/actuator/health` reports `deephaven` and `dhc-a` as up.
-- T4: the Spring context starts and stops cleanly with embedded Deephaven.
+- T4: the Spring context starts and stops cleanly with embedded Deephaven. This is the first
+  time Spring runs on the versions pinned to Deephaven's (the spike ran on Spring's newer
+  Jackson, Gson and HttpClient); a library that turns out to need Spring's version is settled
+  here.
 - T5: the extracted layout starts and passes the same checks; the fat jar is refused with the
   expected message.
 - Stopping A turns the `dhc-a` health indicator down without stopping the Spring application.

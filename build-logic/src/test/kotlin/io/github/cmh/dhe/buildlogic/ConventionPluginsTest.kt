@@ -1,0 +1,130 @@
+package io.github.cmh.dhe.buildlogic
+
+import java.io.File
+import org.gradle.testkit.runner.BuildResult
+import org.gradle.testkit.runner.GradleRunner
+import org.gradle.testkit.runner.TaskOutcome
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+/**
+ * Runs the fixture builds under `src/test/fixtures` and checks that the rules from the
+ * feasibility spike hold, and that breaking one fails the build with a message that says why.
+ */
+class ConventionPluginsTest {
+
+    // F3, stated here on its own on purpose: the test must not read the list it is checking.
+    private val mandatoryJvmFlags = listOf(
+        "--add-exports=java.management/sun.management=ALL-UNNAMED",
+        "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED",
+        "--add-opens=java.base/java.nio=ALL-UNNAMED",
+    )
+
+    @Test
+    fun `a module that declares its own repository fails the build`() {
+        val result = fixture("own-repository", "help").buildAndFail()
+
+        assertContains(result, "prefer settings repositories over project repositories")
+        assertContains(result, "rogue")
+    }
+
+    @Test
+    fun `verifyDeephavenAlignment passes for a plain Java host`() {
+        val result = fixture("java-host", ":app:verifyDeephavenAlignment").build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":app:verifyDeephavenAlignment")?.outcome)
+    }
+
+    @Test
+    fun `verifyDeephavenAlignment fails when an older Jetty is forced`() {
+        val result = fixture("java-host", ":app:verifyDeephavenAlignment", "-PforceOlderJetty").buildAndFail()
+
+        assertEquals(TaskOutcome.FAILED, result.task(":app:verifyDeephavenAlignment")?.outcome)
+        assertContains(result, "resolve to a different version than Deephaven alone resolves them to")
+        assertContains(result, "org.eclipse.jetty:jetty-server  application: 12.0.36  Deephaven alone: 12.1.11")
+    }
+
+    @Test
+    fun `verifyDeephavenAlignment fails when the application has no Deephaven at all`() {
+        val result = fixture("java-host", ":app:verifyDeephavenAlignment", "-PwithoutDeephaven").buildAndFail()
+
+        assertEquals(TaskOutcome.FAILED, result.task(":app:verifyDeephavenAlignment")?.outcome)
+        assertContains(result, "has no io.deephaven module on its runtime classpath")
+    }
+
+    @Test
+    fun `a plain Java host has the mandatory JVM flags on run, tests and start scripts`() {
+        val result = fixture("java-host", ":app:printJvmFlags").build()
+
+        assertFlags(result, "run", "test", "startScripts")
+    }
+
+    @Test
+    fun `a Spring host resolves to Deephaven's versions without Kafka and without Tomcat WebSocket`() {
+        val result = fixture(
+            "spring-host", ":app:verifyDeephavenAlignment", ":app:dependencies", "--configuration", "runtimeClasspath"
+        ).build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":app:verifyDeephavenAlignment")?.outcome)
+        // Spring MVC on Tomcat is there, so the two absences below mean something.
+        assertContains(result, "org.apache.tomcat.embed:tomcat-embed-core")
+        assertContains(result, "io.deephaven:deephaven-server-jetty")
+        assertFalse(result.output.contains("tomcat-embed-websocket"), "tomcat-embed-websocket is on the classpath (F8)")
+        assertFalse(result.output.contains("deephaven-extensions-kafka"), "the Kafka extension is on the classpath (F2)")
+        // Spring Boot 3.5 manages Jetty 12.0.x and a newer Jackson; Deephaven's versions win both ways (F9).
+        assertContains(result, "org.eclipse.jetty:jetty-server:12.0.36 -> 12.1.11")
+        assertFalse(
+            Regex("""jackson-databind:\S+ -> (?!2\.21\.2\b)""").containsMatchIn(result.output),
+            "jackson-databind does not resolve to the version Deephaven alone resolves",
+        )
+    }
+
+    @Test
+    fun `verifyDeephavenAlignment fails in a Spring host when an older Jetty is forced`() {
+        val result = fixture("spring-host", ":app:verifyDeephavenAlignment", "-PforceOlderJetty").buildAndFail()
+
+        assertEquals(TaskOutcome.FAILED, result.task(":app:verifyDeephavenAlignment")?.outcome)
+        assertContains(result, "org.eclipse.jetty:jetty-server  application: 12.0.36  Deephaven alone: 12.1.11")
+    }
+
+    @Test
+    fun `a Spring host has the mandatory JVM flags on bootRun and tests`() {
+        val result = fixture("spring-host", ":app:printJvmFlags").build()
+
+        assertFlags(result, "bootRun", "test")
+    }
+
+    @Test
+    fun `a Spring host that applies io_spring_dependency-management fails the build`() {
+        val result = fixture("spring-host", "help", "-PapplyDependencyManagement").buildAndFail()
+
+        assertContains(result, "applies io.spring.dependency-management. It must not")
+    }
+
+    private fun assertFlags(result: BuildResult, vararg tasks: String) {
+        for (task in tasks) {
+            val line = result.output.lineSequence().firstOrNull { it.startsWith("flags of $task: ") }
+                ?: throw AssertionError("no 'flags of $task' line in:\n${result.output}")
+            for (flag in mandatoryJvmFlags) {
+                assertTrue(line.contains(flag), "$task is missing $flag (F3): $line")
+            }
+        }
+    }
+
+    private fun assertContains(result: BuildResult, expected: String) {
+        assertTrue(result.output.contains(expected), "expected the build output to contain '$expected' but it was:\n${result.output}")
+    }
+
+    /** Copies a fixture build into the build directory and prepares a Gradle run of it. */
+    private fun fixture(name: String, vararg arguments: String): GradleRunner {
+        val source = File(System.getProperty("dhe.fixtures.dir"), name)
+        val workDir = File(System.getProperty("dhe.fixtures.workDir"), name)
+        workDir.deleteRecursively()
+        source.copyRecursively(workDir)
+        return GradleRunner.create()
+            .withProjectDir(workDir)
+            .withArguments(listOf(*arguments, "-PdheRepoRoot=${System.getProperty("dhe.repoRoot")}", "--stacktrace"))
+    }
+}

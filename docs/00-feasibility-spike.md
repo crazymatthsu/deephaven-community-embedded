@@ -75,6 +75,19 @@ Jetty 12.1.11, Netty 4.1.136, gRPC 1.76.2, protobuf 4.33.2, Groovy 3.0.25 (Deeph
 10.1.55, Jakarta Servlet 6.0.0. Spring Boot 4.1.2 manages Netty 4.2.19, Jetty 12.1.14, Tomcat 11 and
 Servlet 6.1 and was not tried; it is an open item, not a default.
 
+*Correction found while building phase P1.* A plain platform stops Spring from **lowering** a
+version, but it still **raises** one wherever Spring manages a newer version than Deephaven uses.
+The list above named only the libraries where Deephaven is ahead. With Spring Boot 3.5.16 next to
+Deephaven 42.4, thirteen libraries on a Spring host's classpath resolved above the version
+Deephaven alone resolves: Jackson (`jackson-core`, `jackson-databind`, `jackson-dataformat-yaml`,
+`jackson-datatype-jdk8`, `jackson-datatype-jsr310` and `jackson-bom`, 2.21.2 to 2.21.4), Gson
+(2.11.0 to 2.13.2), `commons-dbcp2` (2.11.0 to 2.13.0), `commons-pool2` (2.12.0 to 2.12.1),
+`httpclient5` (5.5 to 5.5.2), `httpcore5` (5.3.5 to 5.3.6), `httpcore5-h2` (5.3.4 to 5.3.6) and
+`jcl-over-slf4j` (1.7.30 to 2.0.18). So S5 ran Spring and Deephaven together on those newer
+versions, and it worked. The build now goes the other way: a Spring host pins every library that
+Deephaven brings to the version Deephaven alone resolves ([design section 3](01-design.md)).
+Spring on those pinned versions has not been run yet; phase P5 is where it first is.
+
 **F10. One Deephaven per JVM, and shared directories by default.** Configuration and the update
 graph are process-wide singletons, so two instances mean two JVMs. Each instance also defaults to
 the same `~/.cache/deephaven` (property `deephaven.cacheDir`, with `deephaven.configDir` and

@@ -9,8 +9,10 @@ Deephaven 42.4 · Gradle 9.2 · Java 21 · Groovy application-mode modules.
 
 ## Status
 
-Planning. The embedding was proven in a throwaway spike before anything was designed; the code
-arrives in phases, one pull request each.
+Phase P1 of seven: the build skeleton. Every module exists and resolves against Deephaven 42.4,
+and the build rules from the spike are enforced, but nothing runs yet. The embedding was proven
+in a throwaway spike before anything was designed; the code arrives in phases, one pull request
+each.
 
 | Document | What it holds |
 |---|---|
@@ -18,10 +20,23 @@ arrives in phases, one pull request each.
 | [docs/01-design.md](docs/01-design.md) | architecture, repository layout, build logic, the framework, the two roles, configuration for dev / UAT / production, packaging, testing, risks |
 | [docs/02-implementation-phases.md](docs/02-implementation-phases.md) | seven phases with deliverables and acceptance checks, and the decisions still open |
 
-## Layout (target)
+## Build
+
+Needs a JDK 21 on the machine. Everything else comes through the Gradle wrapper, from Maven
+Central and the Gradle plugin portal only.
+
+```bash
+./gradlew check
+```
+
+`check` compiles every module, runs `verifyDeephavenAlignment` for the four host applications
+and runs the build-logic tests. Behind a company mirror, see [config/README.md](config/README.md).
+The build rules and where each comes from are in [build-logic/README.md](build-logic/README.md).
+
+## Layout
 
 ```
-build-logic/   convention plugins
+build-logic/   convention plugins, and the settings plugin that declares every repository
 framework/     shared Java code: embed-core, embed-spring, embed-testkit, orders-model
 apps/          embedded applications: dhc-a-module, dhc-b-module, dhc-a-java, dhc-b-spring, ...
 config/        settings per application and per environment, artifact sources
