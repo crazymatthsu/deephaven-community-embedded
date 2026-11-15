@@ -31,6 +31,27 @@ class ConventionPluginsTest {
     }
 
     @Test
+    fun `a mirror that needs a login gets the one login on every repository`() {
+        // Made-up values: the fixture resolves nothing, so they are never sent anywhere.
+        val result = fixture("repo-login", "help", "-PdhcRepoUsername=fixture-user", "-PdhcRepoPassword=not-a-real-password")
+            .build()
+
+        val mirror = "https://artifactory.example.com/artifactory"
+        assertContains(result, "plugins dhcPlugins $mirror/gradle-plugins-remote/ user=fixture-user password=set")
+        assertContains(result, "plugins dhcMaven $mirror/maven-remote/ user=fixture-user password=set")
+        assertContains(result, "dependencies dhcMaven $mirror/maven-remote/ user=fixture-user password=set")
+        assertFalse(result.output.contains("not-a-real-password"), "the password must not appear in the build output")
+    }
+
+    @Test
+    fun `a mirror that needs a login fails the build when the login is not given`() {
+        val result = fixture("repo-login", "help").buildAndFail()
+
+        assertContains(result, "DHC_REPO_CREDENTIALS=gradle-properties")
+        assertContains(result, "the Gradle property dhcRepoUsername is not set")
+    }
+
+    @Test
     fun `verifyDeephavenAlignment passes for a plain Java host`() {
         val result = fixture("java-host", ":app:verifyDeephavenAlignment").build()
 
