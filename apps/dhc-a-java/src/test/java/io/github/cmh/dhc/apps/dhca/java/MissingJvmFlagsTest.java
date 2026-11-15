@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -19,10 +20,14 @@ class MissingJvmFlagsTest {
     @Test
     void startingWithoutTheFlagsFailsAndNamesThem(@TempDir Path workDir) throws Exception {
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
-        ProcessBuilder command = new ProcessBuilder(java, "-cp", System.getProperty("java.class.path"),
-                DhcAJavaApp.class.getName());
+        // The classpath goes in an argument file: with close to three hundred jars it is longer
+        // than the command line Windows allows a process.
+        Path arguments = workDir.resolve("java.args");
+        String classpath = System.getProperty("java.class.path").replace("\\", "\\\\").replace("\"", "\\\"");
+        Files.writeString(arguments, "-cp\n\"" + classpath + "\"\n");
+        ProcessBuilder command = new ProcessBuilder(java, "@" + arguments, DhcAJavaApp.class.getName());
         command.environment().put("DHC_HTTP_PORT", "0");
-        command.environment().put("DHC_WORK_DIR", workDir.toString());
+        command.environment().put("DHC_WORK_DIR", workDir.resolve("work").toString());
         command.redirectErrorStream(true);
 
         Process process = command.start();

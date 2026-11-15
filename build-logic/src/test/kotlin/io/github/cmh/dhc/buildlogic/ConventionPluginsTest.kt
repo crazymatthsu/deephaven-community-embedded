@@ -83,6 +83,20 @@ class ConventionPluginsTest {
     }
 
     @Test
+    fun `the start scripts of a plain Java host name one jar, which lists the others`() {
+        val result = fixture("java-host", ":app:printStartClasspath").build()
+
+        // Close to three hundred jars listed one by one are more than Windows accepts.
+        assertContains(result, "unix: CLASSPATH=\$APP_HOME/lib/app.jar")
+        assertContains(result, "windows: set CLASSPATH=%APP_HOME%\\lib\\app.jar")
+        assertContains(result, "manifest has the server: true")
+        val entries = Regex("manifest entries: (\\d+)").find(result.output)!!.groupValues[1].toInt()
+        assertTrue(entries > 100, "the application jar lists only $entries libraries")
+        val longest = Regex("longest windows line: (\\d+)").find(result.output)!!.groupValues[1].toInt()
+        assertTrue(longest < 8191, "a line of the .bat has $longest characters; cmd accepts 8,191")
+    }
+
+    @Test
     fun `a Spring host resolves to Deephaven's versions without Kafka and without Tomcat WebSocket`() {
         val result = fixture(
             "spring-host", ":app:verifyDeephavenAlignment", ":app:dependencies", "--configuration", "runtimeClasspath"
