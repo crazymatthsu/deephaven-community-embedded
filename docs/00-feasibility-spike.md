@@ -52,6 +52,25 @@ installs shutdown hooks and a default uncaught-exception handler that **shuts th
 server and surprising inside a business application. The framework has to decide, per host, which
 of these side effects to keep (phase 2 task).
 
+*Investigated in phase P2*, by reading the 42.4 sources. The spike's description was partly
+wrong: `MainHelper.init` does not replace the standard streams. What happens, and where:
+
+| What changes in the process | Done by | Controlled by |
+|---|---|---|
+| `System.out` and `System.err` are replaced by streams that also feed the web console's log | `DeephavenApiServer.run()` (its log initialisation), not `MainHelper.init` | `replaceStandardStreams`: the originals are put back after start |
+| The default uncaught-exception handler becomes Deephaven's, which exits the JVM with status 1 | `MainHelper.init` | `exitJvmOnFatalError`: the previous handler is put back |
+| An error the engine itself reports as fatal exits the JVM | the process environment's fatal-error reporter | `exitJvmOnFatalError`: our reporter stops the embedded instance instead |
+| A JVM shutdown hook that stops Deephaven, and a second one that stops Logback | the process environment's `onStartup`; `MainHelper.init` | `installShutdownHooks` |
+| An execution context is opened, and left open, on the thread that starts the server | `DeephavenApiServer.run()` | always contained: the framework starts Deephaven on a thread of its own |
+| `java.util.logging` is routed to SLF4J; `deephaven.cacheDir`, `configDir` and `dataDir` become system properties; configuration and update graph are process-wide singletons | `MainHelper.init` | not controllable |
+
+The shutdown hook and the fatal-error behaviour belong to Deephaven's "process environment",
+which it creates by class name from the configuration property
+`default.processEnvironmentFactory`. A host that keeps control supplies its own through that
+property, so nothing of Deephaven is patched. Deephaven has no `stop()` either: it registers how
+to stop as shutdown tasks, and the framework's `stop()` runs those tasks and then ends the two
+thread pools they leave behind (a standalone server exits right after, a host does not).
+
 **F6. The Spring Boot fat jar breaks formula compilation.** `java -jar app.jar` failed on the
 first `update` with `Error Compiling Formula Expression`: Deephaven compiles query formulas with
 `javac` at run time and cannot see classes inside nested jars.

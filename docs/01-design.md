@@ -114,9 +114,9 @@ by build-logic and by the test fixture builds alike, and the rule "repositories 
 |---|---|---|
 | `dhc.repositories` (settings plugin) | the whole build | every repository URL comes from `config/repos/repos.env`; modules may not declare repositories (`FAIL_ON_PROJECT_REPOS`) |
 | `dhc.java-conventions` | every Java module | Java 21 toolchain, UTF-8, warnings as errors (`-Xlint:all` without `processing`, which Dagger's processor path would trip), JUnit 5, reproducible archives |
-| `dhc.deephaven-library` | `framework/*`, role modules | Deephaven BOM as an enforced platform (F9), the Kafka extension excluded (F2), Dagger and its processor (F1), the mandatory JVM flags on tests (F3) |
-| `dhc.groovy-app-module` | `apps/*-module` | packages `src/main/appmode/` into the jar; `validateAppModule` checks the `.app` keys, that each `file_N` exists and that every script parses |
-| `dhc.embedded-java-app` | plain Java hosts | `application` plugin; the mandatory JVM flags (F3) on `run`, tests and the start script; config directory and environment wired into `run` |
+| `dhc.deephaven-library` | `framework/*`, role modules | Deephaven BOM as an enforced platform (F9), the Kafka extension excluded (F2), Dagger and its processor (F1), the mandatory JVM flags on tests (F3), a JVM of its own for every test class (F10), javac's `classfile` lint off (Deephaven's classes refer to annotations it does not publish) |
+| `dhc.groovy-app-module` | `apps/*-module` | packages `src/main/appmode/` into the jar under `META-INF/dhc/app.d/` with an index of its files; `validateAppModule` checks the `.app` keys, that each `file_N` exists and that every script parses, and a module that fails it is not packaged. It runs on the module's own classpath, so scripts are parsed by Deephaven's Groovy 3 and not by Gradle's Groovy 4 |
+| `dhc.embedded-java-app` | plain Java hosts | `application` plugin; the mandatory JVM flags (F3) on `run`, tests and the start script; Logback as the SLF4J backend; `run` gets the development settings (anonymous access, a work directory under `build/`), the installed distribution gets none of them; the config directory is wired in by P6 |
 | `dhc.embedded-spring-app` | Spring hosts | Spring Boot plugin **without** `io.spring.dependency-management` (applying it fails the build), Spring's BOM as a plain platform and every library Deephaven brings pinned to Deephaven's version (F9), Tomcat WebSocket excluded (F8), JVM flags on `bootRun` and tests, an `extractBootJar` task (F7) |
 | `dhc.verify-alignment` | every app (the two app plugins apply it) | `verifyDeephavenAlignment` fails the build if any library on the app's runtime classpath resolved to a different version than Deephaven alone resolves it to |
 
@@ -146,6 +146,7 @@ Versions (`gradle/libs.versions.toml`):
 | Spring Boot | 3.5.16 | tested in the spike; 4.x is an open item (F9) |
 | Dagger | 2.59.2 | the version Deephaven 42.4 itself resolves |
 | JUnit | 5.13.4 | |
+| Logback | 1.5.38 | SLF4J backend of the plain Java hosts only; Spring hosts use Spring's |
 | From Deephaven, not chosen by us | Jetty 12.1.11, gRPC 1.76.2, Netty 4.1.136, protobuf 4.33.2, Groovy 3.0.25 | must not be overridden |
 
 ## 4. The framework
@@ -157,6 +158,7 @@ The one way to run Deephaven inside a JVM. Sketch of the API a host sees:
 ```java
 EmbeddedDeephaven dh = EmbeddedDeephaven.builder()
         .settings(EmbedSettings.load("dhc-a"))      // config files, environment, -D (section 6)
+        .sideEffects(SideEffectPolicy.hostKeepsControl())   // F5; Deephaven's own behaviour if left out
         .bind("orderCache", cache)                  // host objects the Groovy module may use
         .build();
 dh.start();                                         // returns once the app modules have run
@@ -174,13 +176,19 @@ Responsibilities:
   `deephaven.application.dir`, and per-instance `deephaven.cacheDir` / `configDir` / `dataDir`,
   F10) before initialisation.
 - **App-module materialisation**: Application Mode reads a directory, so the modules named in
-  `DHC_APP_MODULES` are copied from the classpath (`META-INF/dhc/app.d/<id>/`) into the
-  instance's work directory at start. `DHC_APP_DIR` points at a source directory instead, for
-  editing scripts without rebuilding.
+  `DHC_APP_MODULES` are copied from the classpath into the instance's work directory at start.
+  A module `hello` is `hello.app` plus its scripts under `hello/`, in `src/main/appmode/` and in
+  the jar under `META-INF/dhc/app.d/` alike. Scripts live below the module's own directory so
+  that two modules in one application cannot overwrite each other's files. A jar cannot be
+  listed like a directory, so the build writes `hello.index`, the list of the module's files.
+  `DHC_APP_DIR` points at a source directory instead, for editing scripts without rebuilding.
 - **Engine access** (F4): `engine().run / call` opens the execution context and takes the shared
   update-graph lock. Host code never touches the lock directly.
-- **Host bindings**: objects registered with `bind` are visible to Groovy as `host.<name>`. A
-  static registry is acceptable here because the engine is a process singleton anyway.
+- **Host bindings**: objects registered with `bind` are visible to Groovy as `host.<name>`. No
+  static registry was needed: the component contributes an application factory, which Deephaven
+  runs after the script session exists and before the application scripts, and which puts the
+  variable `host` into the session. (Touching the session any earlier fails, because its start-up
+  scripts need calendars that the server has not loaded yet.)
 - **Publishing helpers**: `RecordPublisher<T>` wraps `TablePublisher`: the host offers records
   from any thread, the helper batches them into a blink table once per update cycle.
 - **Remote tables**: `RemoteTables.subscribe(upstream, tableName)` hides how the subscription is
@@ -188,9 +196,21 @@ Responsibilities:
   connection state as a small status table.
 - **Preflight checks with actionable messages**: missing JVM flags (F3), running from a nested
   fat jar (F6), port in use, directory not writable.
-- **Process side effects** (F5): one policy object decides whether Deephaven may replace
-  `System.out`, install its uncaught-exception handler and add shutdown hooks. Default for the
-  plain Java host: Deephaven's behaviour. Default for the Spring host: the host keeps control.
+- **Process side effects** (F5): one policy object, `SideEffectPolicy`, with three switches:
+  `replaceStandardStreams`, `exitJvmOnFatalError` and `installShutdownHooks`. Default for the
+  plain Java host: Deephaven's behaviour, all three on. Default for the Spring host and for
+  tests: `hostKeepsControl()`, all three off. The table under F5 says what each one covers and
+  what cannot be controlled.
+- **Start and stop**: `start()` runs Deephaven's start-up on a thread of its own and returns when
+  the application modules have run. `stop()` runs Deephaven's shutdown tasks and ends its thread
+  pools. Afterwards three idle daemon threads remain that nothing can end (Deephaven's reference
+  cleaner, JNA's cleaner, the JDK's process reaper); none keeps the JVM alive. One instance per
+  JVM, and no restart (F10).
+
+Settings in P2 (`EmbedSettings`): `DHC_HTTP_HOST` (`localhost`), `DHC_HTTP_PORT` (10000; 0 picks
+a free port), `DHC_AUTH_MODE` (`psk`; `anonymous` for development), `DHC_AUTH_PSK` (Deephaven
+makes a key up and logs it when unset), `DHC_APP_MODULES`, `DHC_APP_DIR` and `DHC_WORK_DIR`
+(a directory under the system temporary directory, per application).
 
 ### 4.2 `embed-spring`
 
@@ -219,6 +239,9 @@ The demo's domain, shared by both roles and by the tests:
 A JUnit 5 extension that starts one embedded instance per test JVM on free ports, table
 assertions against the oracle, a helper that launches another app's distribution as a child
 process, and `Probe`, a small command-line Barrage client used by tests and by `scripts/smoke.sh`.
+P2 delivers the extension, `TableAssertions` and `LiveThreads` (threads left behind after a
+stop); the launcher and the probe come with the phases that need them (P3, P4). Because
+Deephaven is one per JVM, the build gives every test class a JVM of its own.
 
 ## 5. The two roles
 

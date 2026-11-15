@@ -11,6 +11,7 @@ import org.gradle.api.artifacts.result.ResolvedComponentResult
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.api.artifacts.result.UnresolvedDependencyResult
 import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.testing.Test
 import org.gradle.kotlin.dsl.exclude
 import org.gradle.kotlin.dsl.getByType
@@ -105,6 +106,15 @@ object DeephavenRules {
             dependencies.add(bomConfiguration, dependencies.enforcedPlatform(libs.lib(DEEPHAVEN_BOM)))
             tasks.withType<Test>().configureEach {
                 jvmArgs(mandatoryJvmFlags)
+                // F10: one Deephaven per JVM, and it cannot be restarted. Each test class that
+                // starts one therefore gets a JVM of its own.
+                forkEvery = 1
+            }
+            tasks.withType<JavaCompile>().configureEach {
+                // Deephaven's classes carry annotations from org.immutables, which it does not
+                // publish as a dependency. javac reports each as a "classfile" warning, and
+                // warnings are errors here.
+                options.compilerArgs.add("-Xlint:-classfile")
             }
         }
     }

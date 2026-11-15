@@ -13,10 +13,19 @@ names, plugin ids and `DHC_*` keys is Deephaven Community Core.
 
 ## Status
 
-Phase P1 of seven: the build skeleton. Every module exists and resolves against Deephaven 42.4,
-and the build rules from the spike are enforced, but nothing runs yet. The embedding was proven
-in a throwaway spike before anything was designed; the code arrives in phases, one pull request
-each.
+Phase P2 of seven: the embedding framework and the first host. A plain Java `main` starts
+Deephaven in its own JVM and shows a `hello` table from a Groovy application-mode module. The
+roles (mock order executions, the subscriber) and the Spring Boot host arrive in later phases,
+one pull request each.
+
+```bash
+./gradlew :apps:dhc-a-java:run
+```
+
+then open <http://localhost:10000/ide/>. `run` is the development start: anonymous access, on
+localhost only. The installed distribution (`./gradlew :apps:dhc-a-java:installDist`, then
+`apps/dhc-a-java/build/install/dhc-a-java/bin/dhc-a-java`) asks for a key, which Deephaven prints
+at start unless `DHC_AUTH_PSK` supplies one.
 
 | Document | What it holds |
 |---|---|
