@@ -299,17 +299,22 @@ config/
 
 **Artifact sources.** The container registry, the Maven repository, the Gradle plugin repository
 and the place Gradle distributions are downloaded from are keys in `config/repos/repos.env`, so
-the build runs unchanged behind a company Artifactory by adding one override file,
-`repos.local.env`. Because the Kafka extension is excluded (F2), Maven Central and the plugin
-portal are the only upstreams needed. Three details:
+the build runs unchanged behind a company Artifactory: edit that file to move everyone, or add
+one override file, `repos.local.env`, to move one machine. No other file names a download
+address. Because the Kafka extension is excluded (F2), Maven Central and the plugin portal are
+the only upstreams needed. Three details:
 
 - The distribution key is the directory (`DHC_GRADLE_DISTRIBUTIONS_URL`), not the full URL. The
-  file name carries the Gradle version, which lives in `gradle/libs.versions.toml`. The `wrapper`
-  task joins the two, and `verifyWrapperVersion` (part of `check`) fails if the wrapper is on
-  another version.
-- A mirror that needs a login is switched on with `DHC_REPO_CREDENTIALS=gradle-properties`. The
-  user name and password are then Gradle properties (`~/.gradle/gradle.properties` or
-  `ORG_GRADLE_PROJECT_*`), never values in these files. A URL with credentials in it is rejected.
+  file name carries the Gradle version, which lives in `gradle/libs.versions.toml`. The wrapper
+  reads only `gradle/wrapper/gradle-wrapper.properties`, before any build logic runs, so that
+  file holds the one copy of an address. `scripts/sync-gradle-wrapper.sh` writes the copy
+  without needing Gradle (the `wrapper` task does the same once Gradle is there), and
+  `verifyWrapper` (part of `check`) fails while the copy differs in address or version.
+- A mirror that needs a login is switched on with `DHC_REPO_CREDENTIALS=gradle-properties`.
+  There is one login for every repository: the Gradle properties `dhcRepoUsername` and
+  `dhcRepoPassword` (`~/.gradle/gradle.properties` or `ORG_GRADLE_PROJECT_*`), never values in
+  these files. The build stops with a message when they are missing. A URL with credentials in
+  it is rejected.
 - An unknown key is an error, so a typo does not silently fall back to the public default.
 
 **Authentication.** Development may run anonymous, with a loud log line. Every other environment

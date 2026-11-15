@@ -49,7 +49,8 @@ Deephaven alone resolves. `dependencyInsight` shows the pin as
 
 ## Tests
 
-`src/test/fixtures/` holds three small Gradle builds. `ConventionPluginsTest` runs them with
+`src/test/fixtures/` holds four small Gradle builds. One of them, `repo-login`, has its own
+`config/repos/repos.env` for a mirror that needs a login and resolves nothing. `ConventionPluginsTest` runs them with
 Gradle TestKit and checks that each rule holds and that breaking one fails with a message that
 says why. They run as part of `./gradlew check` at the root. To run one by hand:
 

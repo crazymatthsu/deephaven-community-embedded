@@ -33,7 +33,9 @@ The feasibility spike, the design and this phase plan. No code.
   `check`, that break each rule and expect the build to fail.
 - Every subproject of the layout created with a build file and a placeholder class or README, so
   `./gradlew projects` shows the final structure.
-- `config/repos/repos.env` with public defaults and `repos.local.env.example`.
+- `config/repos/repos.env` with public defaults and `repos.local.env.example`. It is the one
+  file that names a download address; `scripts/sync-gradle-wrapper.sh` copies the Gradle address
+  into the wrapper, and one login (`dhcRepoUsername`, `dhcRepoPassword`) serves every repository.
 - `.gitignore`, `.gitattributes` (LF everywhere, CRLF for `.bat`), `.editorconfig`.
 - GitHub Actions workflow: wrapper validation, `./gradlew check`.
 
