@@ -82,7 +82,9 @@ take part in `./gradlew check`.
 
 Gradle project paths: `:framework:embed-core`, `:apps:dhc-a-java`, and so on.
 
-Java packages share the base `io.github.cmh.dhe` (decision D8), one sub-package per module:
+Java packages share the base `io.github.cmh.dhe` (decision D8), one sub-package per module.
+`dhe` means "Deephaven embedded", here and in the plugin ids and `DHE_*` keys. It does not mean
+Deephaven Enterprise, which this project does not use:
 
 | Module | Package |
 |---|---|

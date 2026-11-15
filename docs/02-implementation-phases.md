@@ -171,8 +171,9 @@ The feasibility spike, the design and this phase plan. No code.
 
 ## What is deliberately out of scope
 
-- Persistence. Both instances are in-memory; a restarted A starts its book again. A durable
-  store is what Deephaven Enterprise adds.
+- Deephaven Enterprise. This project is Deephaven Community Core only: no Enterprise artifact,
+  repository, API or feature is used or planned.
+- Persistence. Both instances are in-memory; a restarted A starts its book again.
 - Python. The embedded console is Groovy only.
 - Kafka ingestion (the extension is excluded, decision D4).
 - High availability, clustering and Kubernetes manifests.
