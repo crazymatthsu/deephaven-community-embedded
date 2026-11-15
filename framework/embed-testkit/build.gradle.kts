@@ -1,5 +1,5 @@
 plugins {
-    id("dhe.deephaven-library")
+    id("dhc.deephaven-library")
 }
 
 description = "JUnit support for embedded Deephaven: the extension, table assertions, the probe client."

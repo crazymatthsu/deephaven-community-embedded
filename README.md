@@ -8,8 +8,8 @@ order executions; embedded instance **B** subscribes to A and derives its own ta
 Deephaven 42.4 · Gradle 9.2 · Java 21 · Groovy application-mode modules.
 
 Community Core only. Every Deephaven dependency is an open-source `io.deephaven` artifact from
-Maven Central; nothing here uses or needs Deephaven Enterprise. The short name `dhe` in package
-names, plugin ids and `DHE_*` keys means "Deephaven embedded".
+Maven Central; nothing here uses or needs Deephaven Enterprise. The short name `dhc` in package
+names, plugin ids and `DHC_*` keys is Deephaven Community Core.
 
 ## Status
 

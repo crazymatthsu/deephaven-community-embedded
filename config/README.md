@@ -11,7 +11,7 @@ Settings as data: the same commit runs in every environment, and only the files 
 
 ## Artifact sources
 
-`repos/repos.env` is read by the `dhe.repositories` settings plugin, which is the only place this
+`repos/repos.env` is read by the `dhc.repositories` settings plugin, which is the only place this
 build declares repositories. A module that declares one of its own fails the build.
 
 To build behind a company Artifactory:
@@ -21,12 +21,12 @@ cp config/repos/repos.local.env.example config/repos/repos.local.env
 ```
 
 then uncomment the keys you need. Keys you leave out keep their public defaults. After changing
-`DHE_GRADLE_DISTRIBUTIONS_URL`, run `./gradlew wrapper` so the wrapper downloads Gradle from
+`DHC_GRADLE_DISTRIBUTIONS_URL`, run `./gradlew wrapper` so the wrapper downloads Gradle from
 there too.
 
 No user name, password or token goes in either file. If the mirror needs a login, set
-`DHE_REPO_CREDENTIALS=gradle-properties` and give Gradle the credentials as Gradle properties
-(`dheMavenUsername`, `dheMavenPassword`, `dhePluginsUsername`, `dhePluginsPassword`), in
+`DHC_REPO_CREDENTIALS=gradle-properties` and give Gradle the credentials as Gradle properties
+(`dhcMavenUsername`, `dhcMavenPassword`, `dhcPluginsUsername`, `dhcPluginsPassword`), in
 `~/.gradle/gradle.properties` or as `ORG_GRADLE_PROJECT_*` environment variables.
 
 The format is the plain `KEY=value` subset that Gradle, bash and compose `env_file` all read the

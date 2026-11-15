@@ -1,22 +1,22 @@
 // Fixture build for the build-logic tests (build-logic/src/test/kotlin). It includes build-logic
-// the way the root build does. The tests pass -PdheRepoRoot=<repository root>.
+// the way the root build does. The tests pass -PdhcRepoRoot=<repository root>.
 
 pluginManagement {
-    val dheRepoRoot: String by settings
-    includeBuild("$dheRepoRoot/build-logic/repositories-plugin")
-    includeBuild("$dheRepoRoot/build-logic")
+    val dhcRepoRoot: String by settings
+    includeBuild("$dhcRepoRoot/build-logic/repositories-plugin")
+    includeBuild("$dhcRepoRoot/build-logic")
 }
 
 plugins {
-    id("dhe.repositories")
+    id("dhc.repositories")
 }
 
-val dheRepoRoot: String by settings
+val dhcRepoRoot: String by settings
 
 dependencyResolutionManagement {
     versionCatalogs {
         create("libs") {
-            from(files("$dheRepoRoot/gradle/libs.versions.toml"))
+            from(files("$dhcRepoRoot/gradle/libs.versions.toml"))
         }
     }
 }

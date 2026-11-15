@@ -1,11 +1,11 @@
 plugins {
-    id("dhe.embedded-spring-app")
+    id("dhc.embedded-spring-app")
 }
 
 description = "Host: Spring Boot running role A."
 
 springBoot {
-    mainClass = "io.github.cmh.dhe.apps.dhca.spring.DhcASpringApp"
+    mainClass = "io.github.cmh.dhc.apps.dhca.spring.DhcASpringApp"
 }
 
 dependencies {

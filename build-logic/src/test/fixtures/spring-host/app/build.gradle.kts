@@ -1,9 +1,9 @@
 plugins {
-    id("dhe.embedded-spring-app")
+    id("dhc.embedded-spring-app")
     id("io.spring.dependency-management") version "1.1.7" apply false
 }
 
-// Not allowed (F9). dhe.embedded-spring-app has to refuse it.
+// Not allowed (F9). dhc.embedded-spring-app has to refuse it.
 if (providers.gradleProperty("applyDependencyManagement").isPresent) {
     apply(plugin = "io.spring.dependency-management")
 }

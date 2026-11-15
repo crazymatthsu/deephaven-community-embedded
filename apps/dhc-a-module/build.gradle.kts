@@ -1,5 +1,5 @@
 plugins {
-    id("dhe.groovy-app-module")
+    id("dhc.groovy-app-module")
 }
 
 description = "Role A: publishes mock order executions. A Groovy application-mode module plus the Java it calls."

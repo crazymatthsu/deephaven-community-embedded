@@ -1,11 +1,11 @@
 plugins {
-    id("dhe.embedded-java-app")
+    id("dhc.embedded-java-app")
 }
 
 description = "Host: plain Java main running role B."
 
 application {
-    mainClass = "io.github.cmh.dhe.apps.dhcb.java.DhcBJavaApp"
+    mainClass = "io.github.cmh.dhc.apps.dhcb.java.DhcBJavaApp"
 }
 
 dependencies {

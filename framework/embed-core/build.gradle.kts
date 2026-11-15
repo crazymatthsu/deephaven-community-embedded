@@ -1,5 +1,5 @@
 plugins {
-    id("dhe.deephaven-library")
+    id("dhc.deephaven-library")
 }
 
 description = "Runs Deephaven inside a JVM: start/stop, component factory, settings, engine access."

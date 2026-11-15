@@ -2,7 +2,7 @@ plugins {
     `java-gradle-plugin`
 }
 
-group = "io.github.cmh.dhe.buildlogic"
+group = "io.github.cmh.dhc.buildlogic"
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
@@ -13,8 +13,8 @@ tasks.withType<JavaCompile>().configureEach {
 gradlePlugin {
     plugins {
         create("repositories") {
-            id = "dhe.repositories"
-            implementationClass = "io.github.cmh.dhe.buildlogic.repositories.DheRepositoriesPlugin"
+            id = "dhc.repositories"
+            implementationClass = "io.github.cmh.dhc.buildlogic.repositories.DhcRepositoriesPlugin"
         }
     }
 }

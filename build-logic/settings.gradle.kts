@@ -4,7 +4,7 @@ pluginManagement {
 
 plugins {
     // build-logic gets its repositories the same way the root build does.
-    id("dhe.repositories")
+    id("dhc.repositories")
 }
 
 dependencyResolutionManagement {

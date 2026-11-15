@@ -6,7 +6,7 @@ pluginManagement {
 
 plugins {
     // The only place repositories come from. Reads config/repos/repos.env.
-    id("dhe.repositories")
+    id("dhc.repositories")
 }
 
 rootProject.name = "deephaven-community-embedded"

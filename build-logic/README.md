@@ -6,13 +6,13 @@ else is decided here, once. Findings "F*n*" are in
 
 | Plugin | For | What it fixes |
 |---|---|---|
-| `dhe.repositories` | the settings of every build | Repositories come from `config/repos/repos.env` and nowhere else. A module that declares its own fails the build. |
-| `dhe.java-conventions` | every Java module | Java 21 toolchain, UTF-8, warnings as errors, JUnit 5, reproducible archives. |
-| `dhe.deephaven-library` | `framework/*`, role modules | Deephaven BOM enforced (F9), Kafka extension excluded (F2), Dagger and its processor (F1), JVM flags on tests (F3). |
-| `dhe.groovy-app-module` | `apps/*-module` | The same as `dhe.deephaven-library` for now. Packaging of `src/main/appmode/` and `validateAppModule` come in P2. |
-| `dhe.embedded-java-app` | plain Java hosts | `application` plugin, the dependency rules, JVM flags on `run`, tests and start scripts (F3), `verifyDeephavenAlignment`. |
-| `dhe.embedded-spring-app` | Spring hosts | Spring Boot plugin without `io.spring.dependency-management`, Spring's BOM as a plain platform, Deephaven's versions pinned (F9), Tomcat WebSocket excluded (F8), JVM flags on `bootRun` and tests (F3), `verifyDeephavenAlignment`. `extractBootJar` comes in P5. |
-| `dhe.verify-alignment` | every app (applied by the two app plugins) | `verifyDeephavenAlignment`, part of `check`. |
+| `dhc.repositories` | the settings of every build | Repositories come from `config/repos/repos.env` and nowhere else. A module that declares its own fails the build. |
+| `dhc.java-conventions` | every Java module | Java 21 toolchain, UTF-8, warnings as errors, JUnit 5, reproducible archives. |
+| `dhc.deephaven-library` | `framework/*`, role modules | Deephaven BOM enforced (F9), Kafka extension excluded (F2), Dagger and its processor (F1), JVM flags on tests (F3). |
+| `dhc.groovy-app-module` | `apps/*-module` | The same as `dhc.deephaven-library` for now. Packaging of `src/main/appmode/` and `validateAppModule` come in P2. |
+| `dhc.embedded-java-app` | plain Java hosts | `application` plugin, the dependency rules, JVM flags on `run`, tests and start scripts (F3), `verifyDeephavenAlignment`. |
+| `dhc.embedded-spring-app` | Spring hosts | Spring Boot plugin without `io.spring.dependency-management`, Spring's BOM as a plain platform, Deephaven's versions pinned (F9), Tomcat WebSocket excluded (F8), JVM flags on `bootRun` and tests (F3), `verifyDeephavenAlignment`. `extractBootJar` comes in P5. |
+| `dhc.verify-alignment` | every app (applied by the two app plugins) | `verifyDeephavenAlignment`, part of `check`. |
 
 ## Two builds
 
@@ -43,7 +43,7 @@ reference.
 Spring Boot's BOM is a plain platform: it suggests versions. Where Deephaven needs a higher
 version than Spring manages (Jetty, Netty), the higher one wins by itself. Where Spring manages a
 higher version than Deephaven uses (Jackson, Gson, HttpClient and others), it would win the same
-way, so `dhe.embedded-spring-app` pins every library that Deephaven brings to the version
+way, so `dhc.embedded-spring-app` pins every library that Deephaven brings to the version
 Deephaven alone resolves. `dependencyInsight` shows the pin as
 "Deephaven 42.4 alone resolves …". Spring decides the libraries Deephaven does not bring.
 
@@ -54,5 +54,5 @@ Gradle TestKit and checks that each rule holds and that breaking one fails with 
 says why. They run as part of `./gradlew check` at the root. To run one by hand:
 
 ```bash
-./gradlew -p build-logic/src/test/fixtures/java-host -PdheRepoRoot="$PWD" :app:verifyDeephavenAlignment -PforceOlderJetty
+./gradlew -p build-logic/src/test/fixtures/java-host -PdhcRepoRoot="$PWD" :app:verifyDeephavenAlignment -PforceOlderJetty
 ```

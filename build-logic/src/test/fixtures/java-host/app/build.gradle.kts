@@ -1,5 +1,5 @@
 plugins {
-    id("dhe.embedded-java-app")
+    id("dhc.embedded-java-app")
 }
 
 application {

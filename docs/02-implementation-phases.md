@@ -25,8 +25,8 @@ The feasibility spike, the design and this phase plan. No code.
 **Delivers**
 
 - Gradle wrapper 9.2.1, `settings.gradle.kts`, `gradle/libs.versions.toml`.
-- `build-logic/` with the convention plugins of design section 3. `dhe.repositories`,
-  `dhe.java-conventions`, `dhe.deephaven-library` and `dhe.verify-alignment` are complete; the
+- `build-logic/` with the convention plugins of design section 3. `dhc.repositories`,
+  `dhc.java-conventions`, `dhc.deephaven-library` and `dhc.verify-alignment` are complete; the
   app and module plugins exist with their dependency rules and the mandatory JVM flags (F2, F3,
   F8, F9) and are filled in by later phases.
 - Fixture builds under `build-logic/src/test/fixtures/`, run with Gradle TestKit as part of
@@ -64,7 +64,7 @@ The feasibility spike, the design and this phase plan. No code.
   the policy object and its two defaults.
 - `:framework:embed-testkit`: the JUnit extension and table assertions.
 - `:apps:dhc-a-java` with a `hello` Groovy module (one ticking table), fully wired through
-  `dhe.embedded-java-app` and `dhe.groovy-app-module`.
+  `dhc.embedded-java-app` and `dhc.groovy-app-module`.
 
 **Acceptance**
 
@@ -116,7 +116,7 @@ The feasibility spike, the design and this phase plan. No code.
 
 - `:framework:embed-spring`: auto-configuration, lifecycle, settings binding, health indicators,
   automatic host bindings.
-- `dhe.embedded-spring-app` completed with `extractBootJar` (F7). Its dependency rules (no
+- `dhc.embedded-spring-app` completed with `extractBootJar` (F7). Its dependency rules (no
   dependency-management plugin and pinned versions, F9; Tomcat WebSocket exclusion, F8) and the
   JVM flags on `bootRun` have been in place since P1.
 - `:apps:dhc-b-spring`: role B in Spring Boot, with `GET /api/orders/{id}`, `GET /api/summary`
@@ -148,7 +148,7 @@ The feasibility spike, the design and this phase plan. No code.
 
 - `bash scripts/demo.sh up` then `bash scripts/smoke.sh` pass locally and in CI, for both
   primary and both secondary apps.
-- `DHE_ENV=uat` changes ports and upstream addresses without a rebuild.
+- `DHC_ENV=uat` changes ports and upstream addresses without a rebuild.
 - `validateConfig` fails on a key missing from one environment and on a secret-looking key.
 - `compose up` runs A and B from images, and the smoke script passes against them.
 
@@ -188,4 +188,6 @@ section 10:
 2. **D2, Spring Boot 3.5 or 4.x.** Default: 3.5.16, which is what was tested.
 3. **D6, authentication in the demo.** Default: pre-shared key outside development.
 
-Decided: **D8, the Java base package is `io.github.cmh.dhe`** (design section 2).
+Decided: **D8, the Java base package is `io.github.cmh.dhc`** (design section 2). It was
+`io.github.cmh.dhe` until P1; the plugin ids (`dhc.*`) and configuration keys (`DHC_*`) were
+renamed with it.

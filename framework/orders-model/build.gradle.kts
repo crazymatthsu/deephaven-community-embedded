@@ -1,5 +1,5 @@
 plugins {
-    id("dhe.deephaven-library")
+    id("dhc.deephaven-library")
 }
 
 description = "The demo's domain: ExecEvent, OrderCache, the mock generator, table definitions, the oracle."

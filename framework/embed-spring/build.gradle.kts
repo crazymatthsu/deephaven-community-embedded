@@ -1,5 +1,5 @@
 plugins {
-    id("dhe.deephaven-library")
+    id("dhc.deephaven-library")
 }
 
 description = "Spring Boot auto-configuration around embed-core."

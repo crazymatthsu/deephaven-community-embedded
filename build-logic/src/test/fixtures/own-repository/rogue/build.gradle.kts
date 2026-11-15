@@ -1,8 +1,8 @@
 plugins {
-    id("dhe.java-conventions")
+    id("dhc.java-conventions")
 }
 
-// Not allowed: repositories come only from dhe.repositories and config/repos/repos.env.
+// Not allowed: repositories come only from dhc.repositories and config/repos/repos.env.
 repositories {
     mavenCentral()
 }

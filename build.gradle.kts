@@ -5,13 +5,13 @@ plugins {
 }
 
 @Suppress("UNCHECKED_CAST")
-val repos = gradle.extra["dhe.repos"] as Map<String, String> // config/repos/repos.env, set by dhe.repositories
+val repos = gradle.extra["dhc.repos"] as Map<String, String> // config/repos/repos.env, set by dhc.repositories
 val wrapperGradleVersion = libs.versions.gradle.get()
 val distributionFile = "gradle-$wrapperGradleVersion-bin.zip"
 
 tasks.wrapper {
     gradleVersion = wrapperGradleVersion
-    distributionUrl = "${repos.getValue("DHE_GRADLE_DISTRIBUTIONS_URL").trimEnd('/')}/$distributionFile"
+    distributionUrl = "${repos.getValue("DHC_GRADLE_DISTRIBUTIONS_URL").trimEnd('/')}/$distributionFile"
 }
 
 // The wrapper reads its properties file before any build logic runs, so the Gradle version is
