@@ -190,7 +190,11 @@ Responsibilities:
   variable `host` into the session. (Touching the session any earlier fails, because its start-up
   scripts need calendars that the server has not loaded yet.)
 - **Publishing helpers**: `RecordPublisher<T>` wraps `TablePublisher`: the host offers records
-  from any thread, the helper batches them into a blink table once per update cycle.
+  from any thread, the helper batches them into a blink table once per update cycle. `offer`
+  only queues, so a host thread never waits for the update graph. A publisher is defined by a
+  `TableDefinition` and one value function per column (String, long, int, double and Instant
+  columns). The table is created on first use, from a script or inside `engine()`, and records
+  offered before that are kept.
 - **Remote tables**: `RemoteTables.subscribe(upstream, tableName)` hides how the subscription is
   made (URI resolution when anonymous, a Barrage client session when authenticated) and reports
   connection state as a small status table.
@@ -210,7 +214,10 @@ Responsibilities:
 Settings in P2 (`EmbedSettings`): `DHC_HTTP_HOST` (`localhost`), `DHC_HTTP_PORT` (10000; 0 picks
 a free port), `DHC_AUTH_MODE` (`psk`; `anonymous` for development), `DHC_AUTH_PSK` (Deephaven
 makes a key up and logs it when unset), `DHC_APP_MODULES`, `DHC_APP_DIR` and `DHC_WORK_DIR`
-(a directory under the system temporary directory, per application).
+(a directory under the system temporary directory, per application). An application's own
+settings are read the same way through `EmbedSettings.value(key)`; role A's are `DHC_GEN_SEED`
+(42), `DHC_GEN_RATE` (5 executions a second), `DHC_GEN_ORDERS` (20 open orders),
+`DHC_GEN_EVENT_LIMIT` (0, no limit) and `DHC_RING_CAPACITY` (10,000).
 
 ### 4.2 `embed-spring`
 
@@ -226,13 +233,20 @@ The demo's domain, shared by both roles and by the tests:
 
 - `ExecEvent`: `ExecID`, `OrderID`, `Symbol`, `Side`, `LastQty`, `LastPx`, `CumQty`,
   `LeavesQty`, `OrdStatus`, `TransactTime`, `Seq` (FIX 4.2 field names, as in the order-tracing
-  project).
-- `OrderCache`: a concurrent map of order state with change listeners. This stands in for "the
-  host's own internal cache", the thing the embedding is meant to display.
-- `MockExecGenerator`: seeded and deterministic; rate, order count and an optional event limit
-  come from settings.
-- `ExecOracle`: pure Java; given the seed and an event count, the expected state per order. Tests
-  compare engine tables with it.
+  project). `Side` and `OrdStatus` carry the name (`BUY`, `FILLED`), not the FIX code.
+- `OrderCache`: a concurrent map of order state (`OrderState`: size, filled, open, average
+  price, notional, number of fills, latest fill) with change listeners. This stands in for "the
+  host's own internal cache", the thing the embedding is meant to display. It knows nothing
+  about Deephaven, and it keeps every order: nothing is evicted in this demo.
+- `MockExecGenerator`: seeded and deterministic. A fixed number of orders is open; each event
+  fills part of one, and a filled order is replaced by a new one. Everything follows from
+  `GeneratorConfig` (seed, open orders, start time, interval), `TransactTime` included: the
+  generator never reads the clock. Pacing and the optional event limit belong to the feed that
+  drives it.
+- `ExecOracle`: pure Java; given the configuration and an event count, the expected latest
+  execution and state per order. It adds up each order's fills its own way and shares only the
+  event sequence with the cache. Tests compare engine tables with it.
+- `ExecTables`: the columns of `exec_events`, `order_cache` and `cache_stats`, defined once.
 
 ### 4.4 `embed-testkit`
 
@@ -248,13 +262,27 @@ Deephaven is one per JVM, the build gives every test class a JVM of its own.
 ### Role A, `dhc-a-module`: mock order executions
 
 ```groovy
-// src/main/appmode/10_tables.groovy
+// src/main/appmode/dhc-a/10_tables.groovy
 feed        = host.execFeed                                  // Java: generator -> OrderCache -> RecordPublisher
 exec_events = feed.blinkTable()                              // one row per execution, this cycle only
-execs       = RingTableTools.of(exec_events, settings.ringCapacity)   // bounded history
-orders      = exec_events.lastBy("OrderID")                  // latest state per order
+execs       = RingTableTools.of(exec_events, host.settings.ringCapacity())   // bounded history
+orders      = exec_events.lastBy("OrderID")                  // latest execution per order
 order_cache = host.orderCache.asTable()                      // the host's cache, as a live table
 cache_stats = host.orderCache.statsTable()                   // size, updates per second, oldest entry
+```
+
+The Java side is `RoleA` in the same module: it owns the `OrderCache`, the `ExecFeed` (a thread
+that takes executions from the generator at the configured rate, applies each to the cache and
+then offers it to the engine) and the `OrderCacheView`, which listens to the cache and publishes
+what it hears. `order_cache` is therefore built from the cache's own change reports, not from
+the executions, which is what makes it a view of the host's structure. A host binds the role and
+starts it after Deephaven has started:
+
+```java
+RoleA role = RoleA.create(RoleASettings.from(settings));
+EmbeddedDeephaven dh = role.bind(EmbeddedDeephaven.builder().settings(settings)).build();
+dh.start();     // the module builds its tables on the feed
+role.start();   // executions begin to arrive
 ```
 
 ### Role B, `dhc-b-module`: subscribe to A and derive

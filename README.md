@@ -13,10 +13,10 @@ names, plugin ids and `DHC_*` keys is Deephaven Community Core.
 
 ## Status
 
-Phase P2 of seven: the embedding framework and the first host. A plain Java `main` starts
-Deephaven in its own JVM and shows a `hello` table from a Groovy application-mode module. The
-roles (mock order executions, the subscriber) and the Spring Boot host arrive in later phases,
-one pull request each.
+Phase P3 of seven: role A. A plain Java `main` starts Deephaven in its own JVM and shows mock
+order executions and the application's own order cache as five live tables (`exec_events`,
+`execs`, `orders`, `order_cache`, `cache_stats`). The subscriber (role B) and the Spring Boot
+host arrive in later phases, one pull request each.
 
 ```bash
 ./gradlew :apps:dhc-a-java:run

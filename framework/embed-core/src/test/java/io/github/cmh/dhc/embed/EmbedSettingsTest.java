@@ -74,11 +74,37 @@ class EmbedSettingsTest {
     }
 
     @Test
-    void anUnknownKeyInTheAppDefaultsIsATypoNotASetting() {
+    void anAppDefaultHasToBeNamedLikeASetting() {
         EmbeddedDeephavenException error = assertThrows(EmbeddedDeephavenException.class,
-                () -> load(Map.of("DHC_HTPP_PORT", "1"), NO_ENVIRONMENT, Map.of()));
+                () -> load(Map.of("http.port", "1"), NO_ENVIRONMENT, Map.of()));
 
-        assertTrue(error.getMessage().contains("Unknown setting DHC_HTPP_PORT"), error.getMessage());
+        assertTrue(error.getMessage().contains("http.port"), error.getMessage());
+        assertTrue(error.getMessage().contains("DHC_<NAME>"), error.getMessage());
+    }
+
+    @Test
+    void anApplicationsOwnSettingsFollowTheSamePrecedence() {
+        Map<String, String> app = Map.of("DHC_GEN_RATE", "5", "DHC_GEN_SEED", "42");
+
+        EmbedSettings settings = load(app, Map.of("DHC_GEN_RATE", "50"), Map.of("dhc.gen.rate", "500"));
+
+        assertEquals(500.0, settings.doubleValue("DHC_GEN_RATE", 1.0));
+        assertEquals(50.0, load(app, Map.of("DHC_GEN_RATE", "50"), Map.of()).doubleValue("DHC_GEN_RATE", 1.0));
+        assertEquals(42, settings.longValue("DHC_GEN_SEED", 0));
+        assertEquals(7, settings.longValue("DHC_GEN_ORDERS", 7));
+        assertTrue(settings.value("DHC_GEN_ORDERS").isEmpty());
+        // Survives a copy, and is absent from settings made by hand.
+        assertEquals(42, settings.toBuilder().httpPort(1).build().longValue("DHC_GEN_SEED", 0));
+        assertEquals(9, EmbedSettings.builder("dhc-a").build().longValue("DHC_GEN_SEED", 9));
+    }
+
+    @Test
+    void anApplicationsOwnSettingThatIsNotANumberIsRejectedWithItsName() {
+        EmbedSettings settings = load(Map.of(), Map.of("DHC_GEN_RATE", "fast"), Map.of());
+
+        EmbeddedDeephavenException error =
+                assertThrows(EmbeddedDeephavenException.class, () -> settings.doubleValue("DHC_GEN_RATE", 1.0));
+        assertTrue(error.getMessage().contains("DHC_GEN_RATE must be a number"), error.getMessage());
     }
 
     @Test
