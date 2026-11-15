@@ -54,8 +54,10 @@ deephaven-community-embedded/
 ├── build.gradle.kts                # aggregate tasks only
 ├── gradle/
 │   ├── libs.versions.toml          # every version in one place
+│   ├── gradle-daemon-jvm.properties # the Gradle daemon runs on Java 21 too
 │   └── wrapper/                    # Gradle 9.2.x
 ├── build-logic/                    # included build: convention plugins (section 3)
+│   └── repositories-plugin/        # included build: the dhc.repositories settings plugin
 ├── framework/                      # shared Java code
 │   ├── embed-core/                 # start/stop, component factory, settings, engine access
 │   ├── embed-spring/               # Spring Boot auto-configuration around embed-core
@@ -80,36 +82,59 @@ take part in `./gradlew check`.
 
 Gradle project paths: `:framework:embed-core`, `:apps:dhc-a-java`, and so on.
 
-Java packages share the base `io.github.cmh.dhe` (decision D8), one sub-package per module:
+Java packages share the base `io.github.cmh.dhc` (decision D8), one sub-package per module.
+`dhc` is Deephaven Community Core, here and in the plugin ids and `DHC_*` keys. The first plan
+used `dhe`; it was renamed because DHE is the usual short name for Deephaven Enterprise, which
+this project does not use:
 
 | Module | Package |
 |---|---|
-| `framework/embed-core` | `io.github.cmh.dhe.embed` |
-| `framework/embed-spring` | `io.github.cmh.dhe.embed.spring` |
-| `framework/embed-testkit` | `io.github.cmh.dhe.testkit` |
-| `framework/orders-model` | `io.github.cmh.dhe.orders` |
-| `apps/dhc-a-module`, `apps/dhc-b-module` | `io.github.cmh.dhe.apps.dhca`, `io.github.cmh.dhe.apps.dhcb` |
-| host apps | `io.github.cmh.dhe.apps.dhca.java`, `...dhca.spring`, `...dhcb.java`, `...dhcb.spring` |
+| `framework/embed-core` | `io.github.cmh.dhc.embed` |
+| `framework/embed-spring` | `io.github.cmh.dhc.embed.spring` |
+| `framework/embed-testkit` | `io.github.cmh.dhc.testkit` |
+| `framework/orders-model` | `io.github.cmh.dhc.orders` |
+| `apps/dhc-a-module`, `apps/dhc-b-module` | `io.github.cmh.dhc.apps.dhca`, `io.github.cmh.dhc.apps.dhcb` |
+| host apps | `io.github.cmh.dhc.apps.dhca.java`, `...dhca.spring`, `...dhcb.java`, `...dhcb.spring` |
 
-The Gradle group is `io.github.cmh.dhe` as well.
+The Gradle group is `io.github.cmh.dhc` as well.
 
 ## 3. Build logic
 
 An included build, `build-logic/`, holds convention plugins written in the Kotlin DSL. Subproject
 build files then contain only a plugin id and their dependencies.
 
+`dhc.repositories` is the exception: it is plain Java in a second included build,
+`build-logic/repositories-plugin/`, which has no dependencies and declares no repositories.
+build-logic needs repositories itself (for the Kotlin DSL and Spring Boot plugins), so the plugin
+that declares them cannot be built by build-logic. Kept apart, it is applied by the root build,
+by build-logic and by the test fixture builds alike, and the rule "repositories come from
+`repos.env` only" has no exception.
+
 | Plugin id | Applied to | What it fixes in one place |
 |---|---|---|
-| `dhe.repositories` (settings plugin) | the whole build | every repository URL comes from `config/repos/repos.env`; modules may not declare repositories (`FAIL_ON_PROJECT_REPOS`) |
-| `dhe.java-conventions` | every Java module | Java 21 toolchain, UTF-8, warnings as errors, JUnit 5, reproducible archives |
-| `dhe.deephaven-library` | `framework/*`, role modules | Deephaven BOM as an enforced platform (F9), the Kafka extension excluded (F2), Dagger and its processor (F1) |
-| `dhe.groovy-app-module` | `apps/*-module` | packages `src/main/appmode/` into the jar; `validateAppModule` checks the `.app` keys, that each `file_N` exists and that every script parses |
-| `dhe.embedded-java-app` | plain Java hosts | `application` plugin; the mandatory JVM flags (F3) on `run`, tests and the start script; config directory and environment wired into `run` |
-| `dhe.embedded-spring-app` | Spring hosts | Spring Boot plugin **without** `io.spring.dependency-management`, Spring's BOM as a plain platform (F9), Tomcat WebSocket excluded (F8), JVM flags on `bootRun`, an `extractBootJar` task (F7) |
-| `dhe.verify-alignment` | every app | `verifyDeephavenAlignment` fails the build if any library on the app's runtime classpath resolved to a different version than Deephaven alone resolves it to |
+| `dhc.repositories` (settings plugin) | the whole build | every repository URL comes from `config/repos/repos.env`; modules may not declare repositories (`FAIL_ON_PROJECT_REPOS`) |
+| `dhc.java-conventions` | every Java module | Java 21 toolchain, UTF-8, warnings as errors (`-Xlint:all` without `processing`, which Dagger's processor path would trip), JUnit 5, reproducible archives |
+| `dhc.deephaven-library` | `framework/*`, role modules | Deephaven BOM as an enforced platform (F9), the Kafka extension excluded (F2), Dagger and its processor (F1), the mandatory JVM flags on tests (F3) |
+| `dhc.groovy-app-module` | `apps/*-module` | packages `src/main/appmode/` into the jar; `validateAppModule` checks the `.app` keys, that each `file_N` exists and that every script parses |
+| `dhc.embedded-java-app` | plain Java hosts | `application` plugin; the mandatory JVM flags (F3) on `run`, tests and the start script; config directory and environment wired into `run` |
+| `dhc.embedded-spring-app` | Spring hosts | Spring Boot plugin **without** `io.spring.dependency-management` (applying it fails the build), Spring's BOM as a plain platform and every library Deephaven brings pinned to Deephaven's version (F9), Tomcat WebSocket excluded (F8), JVM flags on `bootRun` and tests, an `extractBootJar` task (F7) |
+| `dhc.verify-alignment` | every app (the two app plugins apply it) | `verifyDeephavenAlignment` fails the build if any library on the app's runtime classpath resolved to a different version than Deephaven alone resolves it to |
 
 `verifyDeephavenAlignment` is the guard against F9 regressing silently when a host adds a
-dependency.
+dependency. "Deephaven alone" is computed, not listed: the `io.deephaven` modules found on the
+app's runtime classpath, resolved under the Deephaven BOM with nothing else. That reference is
+resolved in a detached configuration, so a project-wide `configurations.all { force(...) }`
+changes the app and not the reference; with an ordinary configuration the two moved together and
+the check passed. An app with no Deephaven module fails too, rather than passing with nothing to
+compare.
+
+**Spring and versions, both directions** (F9, corrected in P1). A plain platform only suggests
+versions. Where Deephaven needs a newer one than Spring manages (Jetty, Netty) Deephaven's wins by
+itself. Where Spring manages a newer one than Deephaven uses (Jackson, Gson, HttpClient and
+others, thirteen libraries with Spring Boot 3.5.16) Spring's would win the same way, and
+`verifyDeephavenAlignment` rightly fails. So `dhc.embedded-spring-app` adds a strict constraint
+for every library in the "Deephaven alone" graph. Spring decides only the libraries Deephaven
+does not bring, and `dependencyInsight` names the reason for each pin.
 
 Versions (`gradle/libs.versions.toml`):
 
@@ -120,6 +145,7 @@ Versions (`gradle/libs.versions.toml`):
 | Java | 21 | toolchain |
 | Spring Boot | 3.5.16 | tested in the spike; 4.x is an open item (F9) |
 | Dagger | 2.59.2 | the version Deephaven 42.4 itself resolves |
+| JUnit | 5.13.4 | |
 | From Deephaven, not chosen by us | Jetty 12.1.11, gRPC 1.76.2, Netty 4.1.136, protobuf 4.33.2, Groovy 3.0.25 | must not be overridden |
 
 ## 4. The framework
@@ -148,8 +174,8 @@ Responsibilities:
   `deephaven.application.dir`, and per-instance `deephaven.cacheDir` / `configDir` / `dataDir`,
   F10) before initialisation.
 - **App-module materialisation**: Application Mode reads a directory, so the modules named in
-  `DHE_APP_MODULES` are copied from the classpath (`META-INF/dhe/app.d/<id>/`) into the
-  instance's work directory at start. `DHE_APP_DIR` points at a source directory instead, for
+  `DHC_APP_MODULES` are copied from the classpath (`META-INF/dhc/app.d/<id>/`) into the
+  instance's work directory at start. `DHC_APP_DIR` points at a source directory instead, for
   editing scripts without rebuilding.
 - **Engine access** (F4): `engine().run / call` opens the execution context and takes the shared
   update-graph lock. Host code never touches the lock directly.
@@ -171,7 +197,7 @@ Responsibilities:
 A Spring Boot starter around `embed-core`: an auto-configured `EmbeddedDeephaven` bean driven by
 a `SmartLifecycle` (starts after the application's own beans, stops before them), settings bound
 from the same keys, a health indicator (`deephaven`, plus one per upstream), every bean
-implementing `HostBinding` registered automatically, and an optional `/dhe/tables` endpoint
+implementing `HostBinding` registered automatically, and an optional `/dhc/tables` endpoint
 listing published tables. Spring's logging configuration stays in charge.
 
 ### 4.3 `orders-model`
@@ -258,9 +284,10 @@ config/
 - **One format.** Plain `KEY=value` files, readable by Java, by the shell scripts and by compose
   `env_file`, so a value is never written twice.
 - **Precedence**, lowest first: `defaults.env`, `apps/<app>.env`, `env/<env>.env`, process
-  environment, `-Ddhe.*` system properties. `DHE_HTTP_PORT` and `dhe.http.port` are the same key.
-  A key scoped to one app (`DHE_DHC_B_HTTP_PORT`) wins over the unscoped one.
-- **Selection.** `DHE_ENV` picks the environment, `DHE_CONFIG_DIR` says where the directory is
+  environment, `-Ddhc.*` system properties. `DHC_HTTP_PORT` and `dhc.http.port` are the same key.
+  A key scoped to one app wins over the unscoped one. The app id goes after the prefix, so for
+  app `dhc-b` the key is `DHC_DHC_B_HTTP_PORT`.
+- **Selection.** `DHC_ENV` picks the environment, `DHC_CONFIG_DIR` says where the directory is
   (the repository's `config/` in development, a mounted path in a container).
 - **Environments are data, not branches.** The same commit and the same image run everywhere.
 - **No secrets in the repository.** The pre-shared key and upstream credentials arrive as
@@ -268,16 +295,26 @@ config/
   that looks like a secret, and checks that every key used in one environment file exists in all
   three.
 - **JVM-level settings** (heap, the mandatory flags) cannot be applied from inside the JVM. The
-  start scripts and container entry points read `DHE_JVM_HEAP` and friends from the same files.
+  start scripts and container entry points read `DHC_JVM_HEAP` and friends from the same files.
 
-**Artifact sources.** Container registries, Maven repositories, the Gradle plugin portal and the
-Gradle distribution URL are keys in `config/repos/repos.env`, so the build runs unchanged behind
-a company Artifactory by adding one override file. Because the Kafka extension is excluded (F2),
-Maven Central and the plugin portal are the only upstreams needed.
+**Artifact sources.** The container registry, the Maven repository, the Gradle plugin repository
+and the place Gradle distributions are downloaded from are keys in `config/repos/repos.env`, so
+the build runs unchanged behind a company Artifactory by adding one override file,
+`repos.local.env`. Because the Kafka extension is excluded (F2), Maven Central and the plugin
+portal are the only upstreams needed. Three details:
+
+- The distribution key is the directory (`DHC_GRADLE_DISTRIBUTIONS_URL`), not the full URL. The
+  file name carries the Gradle version, which lives in `gradle/libs.versions.toml`. The `wrapper`
+  task joins the two, and `verifyWrapperVersion` (part of `check`) fails if the wrapper is on
+  another version.
+- A mirror that needs a login is switched on with `DHC_REPO_CREDENTIALS=gradle-properties`. The
+  user name and password are then Gradle properties (`~/.gradle/gradle.properties` or
+  `ORG_GRADLE_PROJECT_*`), never values in these files. A URL with credentials in it is rejected.
+- An unknown key is an error, so a typo does not silently fall back to the public default.
 
 **Authentication.** Development may run anonymous, with a loud log line. Every other environment
 uses a pre-shared key by default, and B presents A's key when subscribing. Deephaven binds to
-localhost unless `DHE_HTTP_HOST` says otherwise.
+localhost unless `DHC_HTTP_HOST` says otherwise.
 
 ## 7. Packaging and running
 
@@ -315,6 +352,7 @@ smoke script. macOS and Windows runners are added once the Linux build is stable
 | Risk | Evidence | Answer |
 |---|---|---|
 | A host dependency silently changes a Deephaven-pinned version | F9 | `verifyDeephavenAlignment` in every app's `check` |
+| Spring's BOM raises libraries above the versions Deephaven was built with | F9 correction: thirteen libraries with Spring Boot 3.5.16 | the Spring convention plugin pins them to Deephaven's; T4 and T5 are the first run of Spring on the pinned set |
 | WebSocket or servlet clashes return when a host adds libraries | F8 | exclusion in the Spring convention plugin; T5 runs the real packaging |
 | Someone ships the fat jar | F6 | start-up guard with a clear message; T5 negative test |
 | Deephaven's process-wide handlers surprise the host | F5 | explicit side-effect policy per host, tested in T4 |
@@ -336,4 +374,4 @@ These were not specified. The plan proceeds on the default unless changed.
 | D5 | Config format | `.env` files shared by Java, shell and compose | `.properties` or YAML |
 | D6 | Authentication | pre-shared key outside development | anonymous everywhere for a pure demo |
 | D7 | Gradle DSL | Kotlin | Groovy |
-| D8 | Java base package | **decided: `io.github.cmh.dhe`** | |
+| D8 | Java base package | **decided: `io.github.cmh.dhc`** (first `io.github.cmh.dhe`, renamed during P1) | |

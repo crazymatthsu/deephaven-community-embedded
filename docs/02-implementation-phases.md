@@ -25,9 +25,12 @@ The feasibility spike, the design and this phase plan. No code.
 **Delivers**
 
 - Gradle wrapper 9.2.1, `settings.gradle.kts`, `gradle/libs.versions.toml`.
-- `build-logic/` with the convention plugins of design section 3. `dhe.repositories`,
-  `dhe.java-conventions`, `dhe.deephaven-library` and `dhe.verify-alignment` are complete; the
-  app and module plugins exist with their dependency rules and are filled in by later phases.
+- `build-logic/` with the convention plugins of design section 3. `dhc.repositories`,
+  `dhc.java-conventions`, `dhc.deephaven-library` and `dhc.verify-alignment` are complete; the
+  app and module plugins exist with their dependency rules and the mandatory JVM flags (F2, F3,
+  F8, F9) and are filled in by later phases.
+- Fixture builds under `build-logic/src/test/fixtures/`, run with Gradle TestKit as part of
+  `check`, that break each rule and expect the build to fail.
 - Every subproject of the layout created with a build file and a placeholder class or README, so
   `./gradlew projects` shows the final structure.
 - `config/repos/repos.env` with public defaults and `repos.local.env.example`.
@@ -42,6 +45,13 @@ The feasibility spike, the design and this phase plan. No code.
 - `verifyDeephavenAlignment` passes, and fails when a test fixture forces an older Jetty.
 - A module that declares its own repository fails the build.
 
+**Found while building it**
+
+- Spring's BOM as a plain platform still raises thirteen libraries above Deephaven's versions.
+  Spring hosts now pin them (the correction under F9, and design section 3).
+- `verifyDeephavenAlignment` first compared against a reference that a project-wide `force`
+  changed as well, so the forced-Jetty fixture passed. The reference is now detached.
+
 ## P2. `embed-core` and the plain Java host
 
 **Delivers**
@@ -54,7 +64,7 @@ The feasibility spike, the design and this phase plan. No code.
   the policy object and its two defaults.
 - `:framework:embed-testkit`: the JUnit extension and table assertions.
 - `:apps:dhc-a-java` with a `hello` Groovy module (one ticking table), fully wired through
-  `dhe.embedded-java-app` and `dhe.groovy-app-module`.
+  `dhc.embedded-java-app` and `dhc.groovy-app-module`.
 
 **Acceptance**
 
@@ -106,8 +116,9 @@ The feasibility spike, the design and this phase plan. No code.
 
 - `:framework:embed-spring`: auto-configuration, lifecycle, settings binding, health indicators,
   automatic host bindings.
-- `dhe.embedded-spring-app` completed: no dependency-management plugin (F9), Tomcat WebSocket
-  exclusion (F8), `extractBootJar` (F7).
+- `dhc.embedded-spring-app` completed with `extractBootJar` (F7). Its dependency rules (no
+  dependency-management plugin and pinned versions, F9; Tomcat WebSocket exclusion, F8) and the
+  JVM flags on `bootRun` have been in place since P1.
 - `:apps:dhc-b-spring`: role B in Spring Boot, with `GET /api/orders/{id}`, `GET /api/summary`
   and the page at `/` embedding two Deephaven table widgets.
 
@@ -115,7 +126,10 @@ The feasibility spike, the design and this phase plan. No code.
 
 - `./gradlew :apps:dhc-b-spring:bootRun` against a running A: the page shows A's orders, the
   REST endpoints answer, `/actuator/health` reports `deephaven` and `dhc-a` as up.
-- T4: the Spring context starts and stops cleanly with embedded Deephaven.
+- T4: the Spring context starts and stops cleanly with embedded Deephaven. This is the first
+  time Spring runs on the versions pinned to Deephaven's (the spike ran on Spring's newer
+  Jackson, Gson and HttpClient); a library that turns out to need Spring's version is settled
+  here.
 - T5: the extracted layout starts and passes the same checks; the fat jar is refused with the
   expected message.
 - Stopping A turns the `dhc-a` health indicator down without stopping the Spring application.
@@ -134,7 +148,7 @@ The feasibility spike, the design and this phase plan. No code.
 
 - `bash scripts/demo.sh up` then `bash scripts/smoke.sh` pass locally and in CI, for both
   primary and both secondary apps.
-- `DHE_ENV=uat` changes ports and upstream addresses without a rebuild.
+- `DHC_ENV=uat` changes ports and upstream addresses without a rebuild.
 - `validateConfig` fails on a key missing from one environment and on a secret-looking key.
 - `compose up` runs A and B from images, and the smoke script passes against them.
 
@@ -157,8 +171,9 @@ The feasibility spike, the design and this phase plan. No code.
 
 ## What is deliberately out of scope
 
-- Persistence. Both instances are in-memory; a restarted A starts its book again. A durable
-  store is what Deephaven Enterprise adds.
+- Deephaven Enterprise. This project is Deephaven Community Core only: no Enterprise artifact,
+  repository, API or feature is used or planned.
+- Persistence. Both instances are in-memory; a restarted A starts its book again.
 - Python. The embedded console is Groovy only.
 - Kafka ingestion (the extension is excluded, decision D4).
 - High availability, clustering and Kubernetes manifests.
@@ -173,4 +188,6 @@ section 10:
 2. **D2, Spring Boot 3.5 or 4.x.** Default: 3.5.16, which is what was tested.
 3. **D6, authentication in the demo.** Default: pre-shared key outside development.
 
-Decided: **D8, the Java base package is `io.github.cmh.dhe`** (design section 2).
+Decided: **D8, the Java base package is `io.github.cmh.dhc`** (design section 2). It was
+`io.github.cmh.dhe` until P1; the plugin ids (`dhc.*`) and configuration keys (`DHC_*`) were
+renamed with it.

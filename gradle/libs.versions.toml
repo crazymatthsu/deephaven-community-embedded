@@ -1,0 +1,35 @@
+# Every version in one place (design section 3).
+#
+# Deephaven's own dependencies (Jetty 12.1.11, gRPC 1.76.2, Netty 4.1.136, protobuf 4.33.2,
+# Groovy 3.0.25) are deliberately absent: they come from Deephaven and must not be chosen here.
+# The io.deephaven libraries below carry no version; the enforced deephaven-bom supplies it.
+
+[versions]
+java = "21"
+gradle = "9.2.1"
+deephaven = "42.4"
+dagger = "2.59.2"          # the version Deephaven 42.4 itself resolves
+spring-boot = "3.5.16"
+junit = "5.13.4"
+
+[libraries]
+deephaven-bom = { module = "io.deephaven:deephaven-bom", version.ref = "deephaven" }
+deephaven-server-jetty = { module = "io.deephaven:deephaven-server-jetty" }
+deephaven-extensions-flight-sql = { module = "io.deephaven:deephaven-extensions-flight-sql" }
+deephaven-util-processenvironment = { module = "io.deephaven:deephaven-util-processenvironment" }
+deephaven-log-to-slf4j = { module = "io.deephaven:deephaven-log-to-slf4j" }
+deephaven-engine-api = { module = "io.deephaven:deephaven-engine-api" }
+
+dagger = { module = "com.google.dagger:dagger", version.ref = "dagger" }
+dagger-compiler = { module = "com.google.dagger:dagger-compiler", version.ref = "dagger" }
+
+# Spring's BOM is imported as a plain platform, never through io.spring.dependency-management (F9).
+spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }
+spring-boot-autoconfigure = { module = "org.springframework.boot:spring-boot-autoconfigure" }
+spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
+
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
