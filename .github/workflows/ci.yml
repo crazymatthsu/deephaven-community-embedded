@@ -14,9 +14,22 @@ concurrency:
 
 jobs:
   check:
-    name: check (Linux, Temurin 21)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: check (${{ matrix.name }}, Temurin 21)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          # Every step runs in bash, which on a Windows runner is Git Bash: the shell the scripts
+          # of this repository have to work in there.
+          - name: Windows Git Bash
+            os: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
 
@@ -35,11 +48,23 @@ jobs:
       - name: ./gradlew check
         run: ./gradlew check
 
+      # The script has to write, on this operating system too, exactly the line that is committed.
+      - name: scripts/sync-gradle-wrapper.sh leaves the wrapper as it is
+        run: |
+          scripts/sync-gradle-wrapper.sh
+          git diff --exit-code -- gradle/wrapper/gradle-wrapper.properties
+
+      # The installed distribution, started by its own start script in this shell.
+      - name: The installed dhc-a-java starts from its start script
+        run: |
+          ./gradlew :apps:dhc-a-java:installDist
+          scripts/check-start.sh dhc-a-java
+
       - name: Keep the reports of a failed run
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: reports
+          name: reports-${{ matrix.name }}
           path: |
             **/build/reports/
             **/build/test-results/

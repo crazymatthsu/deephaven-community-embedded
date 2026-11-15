@@ -348,7 +348,7 @@ localhost unless `DHC_HTTP_HOST` says otherwise.
 
 | Host | Development | Distribution | Container |
 |---|---|---|---|
-| Plain Java | `./gradlew :apps:dhc-a-java:run` | `installDist`: start script + `lib/`, flags baked into the script | `docker/Dockerfile.java-app` copies the distribution |
+| Plain Java | `./gradlew :apps:dhc-a-java:run` | `installDist`: start script + `lib/`, flags baked into the script. The script names one jar, the application's, whose manifest lists the others: close to three hundred jars listed one by one are more than a Windows command line holds | `docker/Dockerfile.java-app` copies the distribution |
 | Spring Boot | `./gradlew :apps:dhc-b-spring:bootRun` | `bootJar` then `extractBootJar`: thin jar + `lib/` (F7). The fat jar is never the run artifact (F6), and the app refuses to start from one with a message saying why | `docker/Dockerfile.spring-app` copies the extracted layout |
 
 `scripts/demo.sh up|down|status|logs` starts A then B locally, `scripts/run.sh <app> [env]`
@@ -372,8 +372,10 @@ and declare a health check. The compose file works with Podman and Docker.
 The deterministic generator with an event limit is what makes T2 to T4 exact rather than
 "eventually something arrives".
 
-CI: GitHub Actions on Linux with Temurin 21, running `./gradlew check integrationTest` and the
-smoke script. macOS and Windows runners are added once the Linux build is stable.
+CI: GitHub Actions with Temurin 21, on Linux and on Windows in Git Bash, running
+`./gradlew check`, the wrapper script and a start of the installed distribution from its start
+script; `integrationTest` and the smoke script join when they exist. A macOS runner is added in
+P7.
 
 ## 9. Risks and how the plan answers them
 
