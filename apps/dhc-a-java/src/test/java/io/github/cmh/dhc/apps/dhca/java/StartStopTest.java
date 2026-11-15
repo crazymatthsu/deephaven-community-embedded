@@ -7,23 +7,27 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.deephaven.engine.table.Table;
+import io.github.cmh.dhc.apps.dhca.RoleA;
+import io.github.cmh.dhc.apps.dhca.RoleASettings;
 import io.github.cmh.dhc.embed.EmbedSettings;
 import io.github.cmh.dhc.embed.EmbeddedDeephaven;
 import io.github.cmh.dhc.embed.EmbeddedDeephavenException;
 import io.github.cmh.dhc.embed.SideEffectPolicy;
+import io.github.cmh.dhc.orders.ExecOracle;
 import io.github.cmh.dhc.testkit.LiveThreads;
 import io.github.cmh.dhc.testkit.TableAssertions;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * T2: start, read {@code hello}, stop, and what is left afterwards. One test, because Deephaven
- * starts once per JVM (F10).
+ * T2: the host's whole life with role A in it. Start, feed, read a table, stop, and what is left
+ * afterwards. One test, because Deephaven starts once per JVM (F10).
  */
 class StartStopTest {
 
@@ -47,17 +51,20 @@ class StartStopTest {
         Thread.UncaughtExceptionHandler handler = Thread.getDefaultUncaughtExceptionHandler();
         LiveThreads before = LiveThreads.snapshot();
 
-        EmbeddedDeephaven deephaven = EmbeddedDeephaven.builder()
+        RoleASettings roleSettings =
+                new RoleASettings(42, 2_000.0, 12, 200, 100, Instant.parse("2026-01-05T14:30:00Z"));
+        RoleA role = RoleA.create(roleSettings);
+        EmbeddedDeephaven deephaven = role.bind(EmbeddedDeephaven.builder()
                 .settings(EmbedSettings.builder("dhc-a")
                         .httpPort(0)
                         .authMode(EmbedSettings.AuthMode.ANONYMOUS)
-                        .appModules("hello")
+                        .appModules(RoleA.MODULE)
                         .workDir(workDir)
                         .build())
-                .sideEffects(SideEffectPolicy.hostKeepsControl())
-                .bind("greeting", "hello from the test")
+                .sideEffects(SideEffectPolicy.hostKeepsControl()))
                 .build();
         deephaven.start();
+        role.start();
 
         // F5: with hostKeepsControl, Deephaven has changed none of these.
         assertSame(out, System.out, "System.out was replaced");
@@ -65,13 +72,17 @@ class StartStopTest {
         assertSame(handler, Thread.getDefaultUncaughtExceptionHandler(), "the default uncaught-exception handler changed");
 
         // F10: the instance keeps its files in its own directory.
-        assertTrue(Files.isRegularFile(workDir.resolve("app.d/hello.app")), "the module was not materialised");
+        assertTrue(Files.isRegularFile(workDir.resolve("app.d/dhc-a.app")), "the module was not materialised");
         assertTrue(Files.isDirectory(workDir.resolve("cache")), "no cache directory of its own");
 
-        Table hello = deephaven.table("hello");
-        TableAssertions.awaitSize(deephaven, hello, 1, Duration.ofSeconds(30));
-        assertEquals("hello from the test", TableAssertions.<String>column(deephaven, hello, "Message").get(0));
+        assertTrue(role.feed().awaitLimit(Duration.ofSeconds(30)), "the feed did not reach its limit");
+        int orders = ExecOracle.after(roleSettings.generatorConfig(), 200).stateByOrder().size();
+        Table orderCache = deephaven.table("order_cache");
+        TableAssertions.awaitSize(deephaven, orderCache, orders, Duration.ofSeconds(30));
+        assertEquals(orders, TableAssertions.size(deephaven, orderCache));
+        assertEquals(orders, role.cache().size());
 
+        role.close();
         deephaven.stop();
 
         assertFalse(deephaven.isRunning());

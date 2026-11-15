@@ -112,6 +112,20 @@ The feasibility spike, the design and this phase plan. No code.
   row once the limit is reached.
 - The IDE shows the five tables ticking; `order_cache` matches the Java cache's size.
 
+**Found while building it**, and corrected in the design:
+
+- `TransactTime` cannot come from the clock if the tables are to equal the oracle row for row.
+  It follows from the generator's configuration (start time plus position times interval).
+- The average price is kept as a notional sum divided by the filled quantity. A running average
+  and a sum added up afterwards differ in the last bits, and "row for row" means exactly equal.
+- `lastBy` puts its key column first, so `orders` begins with `OrderID` where `exec_events`
+  begins with `ExecID`.
+- `order_cache` is built from the cache's own change reports. Deriving it from the executions
+  would have made it a second copy of `orders`, not a view of the host's cache.
+- A role needs settings of its own (`DHC_GEN_*`), so `EmbedSettings` now serves any `DHC_` key
+  with the usual precedence.
+- The `hello` module of P2 is gone; its checks of the framework moved to role A's test.
+
 ## P4. Role B: subscribe to A
 
 **Delivers**

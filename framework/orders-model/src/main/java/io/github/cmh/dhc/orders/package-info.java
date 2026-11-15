@@ -1,8 +1,11 @@
 /**
- * The demo's domain, shared by both roles and by the tests: {@code ExecEvent}, {@code OrderCache},
- * {@code MockExecGenerator}, {@code ExecOracle} and the table definitions (design section 4.3).
+ * The demo's domain, shared by both roles and by the tests: an execution
+ * ({@link io.github.cmh.dhc.orders.ExecEvent}), the host's cache of order states
+ * ({@link io.github.cmh.dhc.orders.OrderCache}), a deterministic source of executions
+ * ({@link io.github.cmh.dhc.orders.MockExecGenerator}), the expected result
+ * ({@link io.github.cmh.dhc.orders.ExecOracle}) and the table columns
+ * ({@link io.github.cmh.dhc.orders.ExecTables}).
  *
- * <p>Placeholder. Phase P1 only establishes the module and its dependencies; the code arrives in
- * phase P3.
+ * <p>Plain Java. Only the table definitions touch Deephaven, and only its API jar.
  */
 package io.github.cmh.dhc.orders;

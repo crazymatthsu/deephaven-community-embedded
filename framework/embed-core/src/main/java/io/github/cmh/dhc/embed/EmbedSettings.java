@@ -47,6 +47,7 @@ public final class EmbedSettings {
     private final List<String> appModules;
     private final Path appDir;
     private final Path workDir;
+    private final Function<String, Optional<String>> lookup;
 
     private EmbedSettings(Builder builder) {
         this.appId = builder.appId;
@@ -59,6 +60,7 @@ public final class EmbedSettings {
         this.workDir = builder.workDir != null
                 ? builder.workDir
                 : Path.of(System.getProperty("java.io.tmpdir"), "dhc-embedded", builder.appId);
+        this.lookup = builder.lookup;
     }
 
     /** Settings for an application from the environment and {@code -D}, over the built-in defaults. */
@@ -81,9 +83,9 @@ public final class EmbedSettings {
     public static EmbedSettings load(String appId, Map<String, String> appDefaults, Map<String, String> environment,
             Function<String, String> systemProperties) {
         for (String key : appDefaults.keySet()) {
-            if (!KEYS.contains(key)) {
-                throw new EmbeddedDeephavenException("Unknown setting " + key + " in the defaults of application "
-                        + appId + ". Known settings: " + KEYS);
+            if (!key.matches("DHC_[A-Z0-9_]+")) {
+                throw new EmbeddedDeephavenException("Setting " + key + " in the defaults of application " + appId
+                        + " is not a setting name. Settings are named DHC_<NAME>, for example " + HTTP_PORT + ".");
             }
         }
         Function<String, Optional<String>> value = key -> {
@@ -99,6 +101,7 @@ public final class EmbedSettings {
         };
 
         Builder builder = builder(appId);
+        builder.lookup = value;
         value.apply(HTTP_HOST).ifPresent(builder::httpHost);
         value.apply(HTTP_PORT).ifPresent(text -> builder.httpPort(parsePort(text)));
         value.apply(AUTH_MODE).ifPresent(text -> builder.authMode(parseAuthMode(text)));
@@ -158,6 +161,7 @@ public final class EmbedSettings {
         builder.appModules = appModules;
         builder.appDir = appDir;
         builder.workDir = workDir;
+        builder.lookup = lookup;
         return builder;
     }
 
@@ -200,6 +204,41 @@ public final class EmbedSettings {
         return workDir;
     }
 
+    /**
+     * A setting of the application's own, such as {@code DHC_GEN_RATE}, found the same way as the
+     * built-in ones: {@code -Ddhc.gen.rate}, then the environment, then the application's defaults.
+     * Empty for settings made with {@link #builder}, which have no such sources.
+     */
+    public Optional<String> value(String key) {
+        return lookup.apply(key);
+    }
+
+    /** As {@link #value}, as a whole number. */
+    public long longValue(String key, long defaultValue) {
+        Optional<String> text = value(key);
+        if (text.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(text.get());
+        } catch (NumberFormatException e) {
+            throw new EmbeddedDeephavenException(key + " must be a whole number, but it is '" + text.get() + "'.");
+        }
+    }
+
+    /** As {@link #value}, as a number. */
+    public double doubleValue(String key, double defaultValue) {
+        Optional<String> text = value(key);
+        if (text.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Double.parseDouble(text.get());
+        } catch (NumberFormatException e) {
+            throw new EmbeddedDeephavenException(key + " must be a number, but it is '" + text.get() + "'.");
+        }
+    }
+
     /** Never shows the pre-shared key. */
     @Override
     public String toString() {
@@ -217,6 +256,7 @@ public final class EmbedSettings {
         private List<String> appModules = List.of();
         private Path appDir;
         private Path workDir;
+        private Function<String, Optional<String>> lookup = key -> Optional.empty();
 
         private Builder(String appId) {
             if (appId == null || !appId.matches("[a-z][a-z0-9-]*")) {

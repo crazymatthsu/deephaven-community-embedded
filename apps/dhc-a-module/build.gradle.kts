@@ -7,4 +7,8 @@ description = "Role A: publishes mock order executions. A Groovy application-mod
 dependencies {
     api(project(":framework:embed-core"))
     api(project(":framework:orders-model"))
+
+    testImplementation(project(":framework:embed-testkit"))
+    // Deephaven logs through SLF4J; without a backend a failing test would have no log to read.
+    testRuntimeOnly(libs.logback.classic)
 }
