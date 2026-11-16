@@ -7,7 +7,44 @@ Settings as data: the same commit runs in every environment, and only the files 
 |---|---|---|
 | `repos/repos.env` | The one file that says where the build gets its artifacts: Maven repository, Gradle plugin repository, Gradle distributions, container registry. Public defaults. | P1 |
 | `repos/repos.local.env.example` | Template for overriding `repos.env` on one machine. Copy it to `repos/repos.local.env`, which is git-ignored. | P1 |
-| `defaults.env`, `apps/*.env`, `env/{dev,uat,prod}.env` | Application and environment settings, with `validateConfig`. | P6 |
+| `defaults.env` | Every setting of the applications, with its default and what it means. A key that is not here is not a setting. | P6 |
+| `apps/dhc-a.env`, `apps/dhc-b.env` | What makes an application that application, wherever it runs: its module, its default ports. | P6 |
+| `env/dev.env`, `env/uat.env`, `env/prod.env` | What differs between environments: who may log in, interfaces, ports, heap, where instance A is. | P6 |
+
+## Application settings
+
+Lowest first: the application's own defaults, `defaults.env`, `apps/<app>.env`,
+`env/<environment>.env`, the process environment, `-Ddhc.<name>`. `DHC_HTTP_PORT` and
+`dhc.http.port` are the same setting.
+
+- **Pick an environment** with `DHC_ENV`: `DHC_ENV=uat scripts/demo.sh up`,
+  `scripts/run.sh dhc-b-spring uat`. `run`, `bootRun` and the scripts use `dev` unless told.
+- **One file serves both applications.** What differs between them is scoped: in
+  `env/uat.env`, `DHC_DHC_B_HTTP_PORT=11001` is `DHC_HTTP_PORT` for the application `dhc-b`. A
+  scoped key wins over the plain one in the same place, and the same works in the process
+  environment.
+- **Change something for one run** by setting it in the environment:
+  `DHC_GEN_RATE=50 scripts/run.sh dhc-a-java`.
+- **Add a setting**: put it in `defaults.env` with a comment, then use it. **Add an
+  environment**: add `env/<name>.env` with the same keys as the others.
+- **`./gradlew validateConfig`** (part of `check`) refuses a key that is not in `defaults.env`,
+  a key that one environment has and another has not, and anything that looks like a secret.
+
+### Keys
+
+No key, password or token is in any file here. An environment that asks for keys (`uat`,
+`prod`) gets them from the environment of the process, from wherever that environment keeps
+its secrets:
+
+| Variable | What |
+|---|---|
+| `DHC_DHC_A_AUTH_PSK` | the key instance A asks its clients for |
+| `DHC_DHC_B_AUTH_PSK` | the key instance B asks its clients for |
+| `DHC_UPSTREAM_DHC_A_PSK` | A's key again, for B to present when it subscribes |
+
+Without its key an instance makes one up and prints it at start. That is fine for one instance
+alone and not for a pair: B cannot know a key A made up, so `scripts/demo.sh` asks for all
+three before it starts anything.
 
 ## Artifact sources
 
@@ -21,7 +58,7 @@ says **who**.
 
 | File | Holds | Committed |
 |---|---|---|
-| `config/repos/repos.env` | the four addresses: Maven repository, Gradle plugin repository, Gradle distributions, container registry; and whether a login is needed | yes |
+| `config/repos/repos.env` | the addresses: Maven repository, Gradle plugin repository, Gradle distributions, container registry and base image; and whether a login is needed | yes |
 | `~/.gradle/gradle.properties` | the login, only if the mirror needs one | never; it is outside the repository |
 
 1. Put your addresses in `config/repos/repos.env`. `repos.local.env.example` shows the shape of
@@ -33,6 +70,7 @@ says **who**.
    DHC_GRADLE_DISTRIBUTIONS_URL=https://artifactory.example.com/artifactory/gradle-distributions-remote
    DHC_REPO_CREDENTIALS=gradle-properties
    DHC_CONTAINER_REGISTRY=artifactory.example.com/docker-remote
+   DHC_CONTAINER_BASE_IMAGE=library/eclipse-temurin:21-jdk
    ```
 
 2. Copy the Gradle address into the wrapper. The wrapper runs before any build logic and reads
@@ -71,8 +109,11 @@ No user name, password or token goes in `repos.env` or `repos.local.env`; an add
 credentials in it is rejected.
 
 Not covered by these files, because the build does not download them: the JDK (a JDK 21 has to
-be on the machine) and whatever your CI system fetches for itself. Container images are not
-built yet; from P6 they read `DHC_CONTAINER_REGISTRY`.
+be on the machine) and whatever your CI system fetches for itself.
+
+Container images are built `FROM <DHC_CONTAINER_REGISTRY>/<DHC_CONTAINER_BASE_IMAGE>`. Logging in
+to that registry is the container runtime's business (`docker login`, `podman login`), not this
+build's. The base image has to be a JDK 21 with bash and curl; see [docker/README.md](../docker/README.md).
 
 The format is the plain `KEY=value` subset that Gradle, bash and compose `env_file` all read the
 same way: no quotes, no spaces around `=`, no variable expansion, `#` for comment lines. An

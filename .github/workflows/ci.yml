@@ -65,6 +65,62 @@ jobs:
           ./gradlew :apps:dhc-a-java:installDist
           scripts/check-start.sh dhc-a-java
 
+      # From here on: the applications as they are shipped, started by the scripts of this
+      # repository in this shell, and checked from outside.
+      - name: Build every application, and the probe
+        run: ./gradlew installDist extractBootJar
+
+      - name: scripts/check_env.sh
+        run: scripts/check_env.sh
+
+      - name: Demo and smoke, primary pair (dhc-a-java, dhc-b-spring)
+        run: |
+          scripts/demo.sh up primary
+          scripts/smoke.sh
+          scripts/demo.sh down
+
+      - name: Demo and smoke, secondary pair (dhc-a-spring, dhc-b-java)
+        run: |
+          scripts/demo.sh up secondary
+          scripts/smoke.sh
+          scripts/demo.sh down
+
+      # The same build under another environment: other ports, and keys. The keys are made up
+      # for this run and live in this step only.
+      - name: Demo and smoke under DHC_ENV=uat
+        env:
+          DHC_ENV: uat
+        run: |
+          export DHC_DHC_A_AUTH_PSK="ci-a-$RANDOM$RANDOM$RANDOM"
+          export DHC_DHC_B_AUTH_PSK="ci-b-$RANDOM$RANDOM$RANDOM"
+          export DHC_UPSTREAM_DHC_A_PSK="$DHC_DHC_A_AUTH_PSK"
+          scripts/demo.sh up primary
+          scripts/smoke.sh
+          scripts/demo.sh down
+
+      # Containers. A Windows runner has no Linux containers, so this part is Linux only.
+      - name: Build the images
+        if: runner.os == 'Linux'
+        run: ./gradlew buildImages
+
+      - name: Compose up and smoke, both pairs
+        if: runner.os == 'Linux'
+        run: |
+          docker compose -f docker/compose.yaml up -d
+          scripts/smoke.sh primary
+          docker compose -f docker/compose.yaml down
+          export DHC_A_IMAGE=dhc/dhc-a-spring DHC_B_IMAGE=dhc/dhc-b-java
+          docker compose -f docker/compose.yaml up -d
+          scripts/smoke.sh secondary
+          docker compose -f docker/compose.yaml down
+
+      - name: Show the logs of a failed run
+        if: failure()
+        run: |
+          scripts/demo.sh logs || true
+          DHC_ENV=uat scripts/demo.sh logs || true
+          if [ "$RUNNER_OS" = Linux ]; then docker compose -f docker/compose.yaml logs --tail 80 || true; fi
+
       - name: Keep the reports of a failed run
         if: failure()
         uses: actions/upload-artifact@v7

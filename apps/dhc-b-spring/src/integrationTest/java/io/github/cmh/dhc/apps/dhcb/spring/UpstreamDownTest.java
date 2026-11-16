@@ -66,6 +66,10 @@ class UpstreamDownTest {
         assertEquals("UP", down.path("components").path("deephaven").path("status").asText(), down.toString());
         assertEquals("DOWN", down.path("status").asText(), down.toString());
         assertEquals(503, Http.get(baseUrl + "/actuator/health").statusCode());
+        // Two narrower questions. "Is this process well" stays yes, so nothing restarts it for
+        // A's sake; "can it serve what it is for" is no.
+        assertEquals(200, Http.get(baseUrl + "/actuator/health/liveness").statusCode(), "liveness while A is away");
+        assertEquals(503, Http.get(baseUrl + "/actuator/health/readiness").statusCode(), "readiness while A is away");
 
         // The application still answers. The summary is the last one it saw, and says so.
         JsonNode stale = host.summary();
@@ -82,6 +86,7 @@ class UpstreamDownTest {
         a.start();
 
         JsonNode up = host.awaitHealth("dhc-a", "UP");
+        assertEquals(200, Http.get(baseUrl + "/actuator/health/readiness").statusCode(), "readiness when A is back");
         assertEquals(1, up.path("components").path("dhc-a").path("details").path("reconnects").asInt(), up.toString());
         assertEquals("UP", host.awaitHealth("deephaven", "UP").path("status").asText());
         // A came back empty and fed the same executions again; B's rebuilt tables hold them.

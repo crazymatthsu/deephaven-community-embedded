@@ -1,0 +1,49 @@
+# A plain Java host (dhc-a-java, dhc-b-java) as an image: the installDist distribution, the
+# configuration directory, and an entry point that reads the JVM settings from it.
+#
+# Built by ./gradlew buildImages, which stages the build context and passes the two arguments.
+# By hand, from a staged context (docker/build/context/<app>):
+#   docker build -f Dockerfile --build-arg APP=dhc-a-java -t dhc/dhc-a-java .
+#
+# The base image comes from config/repos/repos.env (DHC_CONTAINER_REGISTRY and
+# DHC_CONTAINER_BASE_IMAGE). It has to be a JDK: Deephaven compiles query formulas with javac
+# while it runs, and a JRE has no compiler (finding F16).
+
+ARG BASE_IMAGE=docker.io/library/eclipse-temurin:21-jdk
+FROM ${BASE_IMAGE}
+
+ARG APP
+
+# The entry point is bash and the health check is curl. A base image without them fails here,
+# with this message, instead of at the first start.
+RUN command -v bash > /dev/null && command -v curl > /dev/null \
+    || { echo "The base image needs bash and curl."; exit 1; }
+
+# Not root. The application writes below /var/dhc only.
+RUN groupadd --system --gid 10001 dhc \
+    && useradd --system --uid 10001 --gid dhc --home-dir /var/dhc --create-home dhc \
+    && mkdir -p /var/dhc/work \
+    && chown -R dhc:dhc /var/dhc
+
+COPY app/ /opt/dhc/app/
+COPY config/ /opt/dhc/config/
+COPY lib.sh entrypoint.sh healthcheck.sh /opt/dhc/
+RUN chmod 0755 /opt/dhc/entrypoint.sh /opt/dhc/healthcheck.sh /opt/dhc/app/bin/${APP}
+
+# What the image fixes, as settings like any other: where its files are, and that Deephaven
+# listens on every interface of the container. DHC_ENV is not set here: without it the
+# application runs on the safe defaults (key-protected). An environment is chosen at run time.
+ENV DHC_APP=${APP} \
+    DHC_CONFIG_DIR=/opt/dhc/config \
+    DHC_WORK_DIR=/var/dhc/work \
+    DHC_HTTP_HOST=0.0.0.0
+
+USER dhc
+WORKDIR /var/dhc
+
+# Deephaven's web IDE and API. The port is a setting (DHC_HTTP_PORT); this is its default.
+EXPOSE 10000
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=6 CMD ["/opt/dhc/healthcheck.sh"]
+
+ENTRYPOINT ["/opt/dhc/entrypoint.sh"]

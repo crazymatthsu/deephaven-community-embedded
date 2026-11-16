@@ -154,6 +154,56 @@ class ConventionPluginsTest {
         assertContains(result, "applies io.spring.dependency-management. It must not")
     }
 
+    @Test
+    fun `validateConfig passes for a configuration directory that keeps the rules`() {
+        val result = fixture("config-check", ":config:validateConfig").build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":config:validateConfig")?.outcome)
+        assertContains(result, "validateConfig: 4 settings, 2 application(s) [dhc-a, dhc-b], 3 environment(s) [dev, prod, uat].")
+    }
+
+    @Test
+    fun `validateConfig fails on a key that one environment has and another has not`() {
+        val runner = fixture("config-check", ":config:validateConfig")
+        File(runner.projectDir, "config/env/uat.env").appendText("DHC_HTTP_HOST=0.0.0.0\n")
+
+        val result = runner.buildAndFail()
+
+        assertContains(result, "env/dev.env: DHC_HTTP_HOST is missing. It is set in uat.env")
+        assertContains(result, "env/prod.env: DHC_HTTP_HOST is missing. It is set in uat.env")
+    }
+
+    @Test
+    fun `validateConfig fails on a key that looks like a secret, without repeating its value`() {
+        val runner = fixture("config-check", ":config:validateConfig")
+        // Made up for this test; the point is that the task does not print it.
+        File(runner.projectDir, "config/env/prod.env").appendText("DHC_DHC_A_AUTH_PSK=not-a-real-key-123\n")
+
+        val result = runner.buildAndFail()
+
+        assertContains(result, "env/prod.env line 5: DHC_DHC_A_AUTH_PSK looks like a secret")
+        assertFalse(result.output.contains("not-a-real-key-123"), "the value of a secret-looking key must not be printed")
+    }
+
+    @Test
+    fun `validateConfig reports every problem at once, each with its place`() {
+        val runner = fixture("config-check", ":config:validateConfig")
+        File(runner.projectDir, "config/apps/dhc-b.env").appendText("DHC_HTTP_PROT=10001\n")
+        File(runner.projectDir, "config/apps/dhc-a.env").appendText("DHC_DHC_A_HTTP_HOST=localhost\n")
+        File(runner.projectDir, "config/env/dev.env").appendText("DHC_DHC_C_HTTP_PORT=10002\nexport DHC_AUTH_MODE=psk\n")
+        File(runner.projectDir, "config/env/uat.env").appendText("DHC_AUTH_MODE=\"psk\"\n")
+        File(runner.projectDir, "config/env/prod.env").delete()
+
+        val result = runner.buildAndFail()
+
+        assertContains(result, "apps/dhc-b.env: DHC_HTTP_PROT is not a setting")
+        assertContains(result, "apps/dhc-a.env: DHC_DHC_A_HTTP_HOST is scoped to the application dhc-a")
+        assertContains(result, "env/dev.env: DHC_DHC_C_HTTP_PORT is not a setting")
+        assertContains(result, "env/dev.env line 6: not KEY=value with a key named DHC_<NAME>: export DHC_AUTH_MODE=psk")
+        assertContains(result, "env/uat.env line 5: the value of DHC_AUTH_MODE has quotes")
+        assertContains(result, "env/prod.env does not exist")
+    }
+
     private fun assertFlags(result: BuildResult, vararg tasks: String) {
         for (task in tasks) {
             val line = result.output.lineSequence().firstOrNull { it.startsWith("flags of $task: ") }

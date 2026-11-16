@@ -74,4 +74,14 @@ class PreflightTest {
     void portZeroMeansPickOneAndIsNotChecked() {
         assertDoesNotThrow(() -> Preflight.checkPortFree("localhost", 0));
     }
+
+    @Test
+    void aJavaWithoutACompilerIsRefusedWithWhatToUseInstead() {
+        Preflight.checkCompiler(true);
+
+        EmbeddedDeephavenException error =
+                assertThrows(EmbeddedDeephavenException.class, () -> Preflight.checkCompiler(false));
+        assertTrue(error.getMessage().contains("it needs a JDK"), error.getMessage());
+        assertTrue(error.getMessage().contains("DHC_CONTAINER_BASE_IMAGE"), error.getMessage());
+    }
 }

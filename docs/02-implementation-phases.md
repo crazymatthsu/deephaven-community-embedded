@@ -233,6 +233,32 @@ The feasibility spike, the design and this phase plan. No code.
 - `validateConfig` fails on a key missing from one environment and on a secret-looking key.
 - `compose up` runs A and B from images, and the smoke script passes against them.
 
+**Found while building it** (finding F16, and the design):
+
+- The base image has to be a JDK. On the JRE the plan named, the application does not start
+  (F16). The preflight check now says so first.
+- Precedence needed one more sentence than the plan had. "A scoped key wins over the unscoped
+  one" holds within one place (a file, the environment, `-D`), and the place comes first. Scoped
+  keys also work in the process environment, which is what lets one shell or one compose file
+  give A and B different keys.
+- The Spring port had no setting. It is `DHC_WEB_PORT` now, or an environment could move
+  Deephaven's port and not the application's.
+- The smoke script needs to read A, and a plain Java host has only Deephaven's API. The probe of
+  P4 got a start script: `apps/dhc-probe`. An empty `DHC_PROBE_PSK` now means "no key".
+- "B's totals equal A's" has no fixed answer while A's feed runs. The smoke script reads A, B
+  and A again, and asks that B lies between the two.
+- Health for containers needed two narrower questions than the overall status, which is `DOWN`
+  while A is away (P5): liveness with Deephaven and without the upstream, readiness with both.
+- `:apps:dhc-b-java` was already there from P4, so the fourth combination to build was only
+  `:apps:dhc-a-spring`.
+- Podman on macOS cannot build from a directory with several hundred jars; the context is sent
+  as an archive instead, which docker takes as well.
+- Stopping a background process is different in Windows Git Bash: a plain `kill` ends the
+  shell's process and says nothing to the JVM below it. The scripts read the Windows process id
+  first and end the process tree. There, an application is ended, not asked to stop.
+- `run` and `bootRun` now take their settings from `config/` with the environment `dev`,
+  instead of having anonymous access written into the build.
+
 ## P7. Hardening and documentation
 
 **Delivers**

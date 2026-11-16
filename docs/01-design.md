@@ -411,23 +411,46 @@ config/
 ```
 
 - **One format.** Plain `KEY=value` files, readable by Java, by the shell scripts and by compose
-  `env_file`, so a value is never written twice.
-- **Precedence**, lowest first: `defaults.env`, `apps/<app>.env`, `env/<env>.env`, process
-  environment, `-Ddhc.*` system properties. `DHC_HTTP_PORT` and `dhc.http.port` are the same key.
-  A key scoped to one app wins over the unscoped one. The app id goes after the prefix, so for
-  app `dhc-b` the key is `DHC_DHC_B_HTTP_PORT`.
-- **Selection.** `DHC_ENV` picks the environment, `DHC_CONFIG_DIR` says where the directory is
-  (the repository's `config/` in development, a mounted path in a container).
+  `env_file`, so a value is never written twice. `defaults.env` lists every setting; a key that
+  is not in it is not a setting.
+- **Precedence**, lowest first: the application's own defaults (in its code, so that it runs
+  without any file), `defaults.env`, `apps/<app>.env`, `env/<env>.env`, the process environment,
+  `-Ddhc.*` system properties. `DHC_HTTP_PORT` and `dhc.http.port` are the same key.
+- **Scoped keys.** One environment file serves every application, so what differs between them
+  is scoped by putting the application's id after the prefix: for the application `dhc-b`,
+  `DHC_DHC_B_HTTP_PORT` is `DHC_HTTP_PORT`. A scoped key wins over the plain key *in the same
+  place*: an environment file, the process environment, `-D`. The place still comes first, so a
+  plain `DHC_HTTP_PORT` in the process environment wins over a scoped one in a file. Scoped keys
+  in the process environment are what lets one shell, or one compose file, give two
+  applications their own keys.
+- **The same rules three times.** `EmbedSettings.load` for a plain Java host; a property source
+  in `embed-spring` for a Spring host, where they also hold for placeholders
+  (`server.port=${dhc.web.port}`); `scripts/lib.sh` for the scripts and the container entry
+  point. Tests hold the two Java ones to the same cases.
+- **Selection.** `DHC_ENV` picks the environment, `DHC_CONFIG_DIR` says where the directory is:
+  the repository's `config/` for `run`, `bootRun` and the scripts, `/opt/dhc/config` in an
+  image, which holds a copy; mount another directory there to change settings without a new
+  image. Without `DHC_CONFIG_DIR` there is no file layer. Without `DHC_ENV` only the defaults
+  and the application's file apply, which is the safe set: key-protected, localhost.
 - **Environments are data, not branches.** The same commit and the same image run everywhere.
 - **No secrets in the repository.** The pre-shared key and upstream credentials arrive as
-  environment variables from each environment's secret store. `validateConfig` rejects any key
-  that looks like a secret, and checks that every key used in one environment file exists in all
-  three.
-- **JVM-level settings** (heap, the mandatory flags) cannot be applied from inside the JVM. The
-  start scripts and container entry points read `DHC_JVM_HEAP` and friends from the same files.
+  environment variables from each environment's secret store: `DHC_DHC_A_AUTH_PSK`,
+  `DHC_DHC_B_AUTH_PSK`, `DHC_UPSTREAM_DHC_A_PSK`.
+- **`validateConfig`** (part of `check`) reports every problem at once: a line that is not
+  `KEY=value`, a key written twice, a key that looks like a secret (without repeating its
+  value), a key that is not in `defaults.env`, a scoped key outside an environment file or for
+  an application that does not exist, and a key that one of `dev`, `uat`, `prod` has and
+  another has not.
+- **JVM-level settings** (heap, extra options) cannot be applied from inside the JVM.
+  `scripts/run.sh` and the container entry point read `DHC_JVM_HEAP` and `DHC_JVM_OPTS` from
+  the same files, with the same rules. The mandatory flags are not a setting; they are always
+  there.
+- **The Spring port** is a setting too, `DHC_WEB_PORT`, so that an environment can move it like
+  Deephaven's.
 
-**Artifact sources.** The container registry, the Maven repository, the Gradle plugin repository
-and the place Gradle distributions are downloaded from are keys in `config/repos/repos.env`, so
+**Artifact sources.** The container registry and base image, the Maven repository, the Gradle
+plugin repository and the place Gradle distributions are downloaded from are keys in
+`config/repos/repos.env`, so
 the build runs unchanged behind a company Artifactory: edit that file to move everyone, or add
 one override file, `repos.local.env`, to move one machine. No other file names a download
 address. Because the Kafka extension is excluded (F2), Maven Central and the plugin portal are
@@ -454,16 +477,44 @@ localhost unless `DHC_HTTP_HOST` says otherwise.
 
 | Host | Development | Distribution | Container |
 |---|---|---|---|
-| Plain Java | `./gradlew :apps:dhc-a-java:run` | `installDist`: start script + `lib/`, flags baked into the script. The script names one jar, the application's, whose manifest lists the others: close to three hundred jars listed one by one are more than a Windows command line holds | `docker/Dockerfile.java-app` copies the distribution |
+| Plain Java | `./gradlew :apps:dhc-a-java:run` (the repository's `config/`, environment `dev`) | `installDist`: start script + `lib/`, flags baked into the script. The script names one jar, the application's, whose manifest lists the others: close to three hundred jars listed one by one are more than a Windows command line holds | `docker/Dockerfile.java-app` copies the distribution |
 | Spring Boot | `./gradlew :apps:dhc-b-spring:bootRun` | `extractBootJar` (part of `assemble`) unpacks the fat jar into `build/extracted`: `<app>.jar`, a thin jar whose manifest lists the libraries, `lib/`, and `jvm.args` with the mandatory JVM flags (F7). Started with `java @jvm.args -jar <app>.jar`. The fat jar is never the run artifact (F6), and the app refuses to start from one with a message saying why | `docker/Dockerfile.spring-app` copies the extracted layout |
 
-`scripts/demo.sh up|down|status|logs` starts A then B locally, `scripts/run.sh <app> [env]`
-starts one, and `scripts/smoke.sh` waits for health and compares B's totals with A's through the
-probe. Scripts follow the same portability rules as the sibling repositories: bash 3.2, BSD
-tools, no GNU-only flags.
+**Scripts** (bash 3.2, BSD tools, no GNU-only flags; they run on macOS, Linux and Windows Git
+Bash, and `scripts/lib.sh` holds what they share):
 
-Images take `ARG BASE_IMAGE` (default a fully qualified Temurin 21 JRE), run as a non-root user
-and declare a health check. The compose file works with Podman and Docker.
+| Script | What |
+|---|---|
+| `run.sh <app> [env]` | one application in the foreground, from what Gradle built, with one environment's settings |
+| `demo.sh up [pair] \| down \| status \| logs` | A then B in the background; `primary` is `dhc-a-java` with `dhc-b-spring`, `secondary` is `dhc-a-spring` with `dhc-b-java`. One pair per environment; `DHC_ENV=uat scripts/demo.sh up` runs beside dev |
+| `smoke.sh [pair]` | both answer, and B holds what A has. It only needs the ports, so it checks containers the same way |
+| `check_env.sh` | whether this machine has what the build, the scripts and the containers need |
+
+The smoke check compares two instances whose feed never stops. It reads A, then B, then A
+again, through `dhc-probe` (the probe of P4 with a start script of its own): B's number of
+orders and filled quantity have to lie between A's two readings. Both only grow, so B is then
+exactly what A was at some moment in between.
+
+**Containers.** `./gradlew buildImages` builds `dhc/<app>` for the four hosts, with docker or
+podman, from `docker/Dockerfile.java-app` and `docker/Dockerfile.spring-app`.
+
+- The base image is `<DHC_CONTAINER_REGISTRY>/<DHC_CONTAINER_BASE_IMAGE>` from
+  `config/repos/repos.env`, and it is a **JDK**: Deephaven compiles formulas with `javac` at
+  run time, so a JRE does not start (F16).
+- An image holds the application as it is run outside a container (the distribution, or the
+  extracted layout), the configuration directory, and an entry point that reads the JVM
+  settings and then becomes the JVM, so that a stop request reaches it.
+- It runs as a user that is not root, writes below `/var/dhc` only, and declares a health check
+  that asks "is this process well": Deephaven's web IDE for a plain host,
+  `/actuator/health/liveness` for a Spring host, which leaves the upstream out. An instance B
+  whose A is away is not restarted for it.
+- `DHC_ENV` is not set in the image. Without it an instance runs key-protected.
+- The build context goes to the runtime as one archive on standard input. Every runtime takes
+  it that way, and Podman on macOS cannot read a directory of several hundred jars through its
+  virtual machine.
+- `docker/compose.yaml` runs A and B, the primary pair unless `DHC_A_IMAGE` and `DHC_B_IMAGE`
+  say otherwise, and works with `docker compose` and `podman compose`. It publishes the ports
+  on `127.0.0.1` only, because `dev` lets anybody in.
 
 ## 8. Testing
 
@@ -479,9 +530,12 @@ The deterministic generator with an event limit is what makes T2 to T4 exact rat
 "eventually something arrives".
 
 CI: GitHub Actions with Temurin 21, on Linux and on Windows in Git Bash, running
-`./gradlew check`, `./gradlew integrationTest`, the wrapper script and a start of the installed
-distribution from its start script; the smoke script joins when it exists. A macOS runner is added in
-P7.
+`./gradlew check`, `./gradlew integrationTest`, the wrapper script, a start of the installed
+distribution from its start script, and then the applications as shipped: `demo.sh up`,
+`smoke.sh` and `demo.sh down` for the primary pair, the secondary pair, and the primary pair
+under `DHC_ENV=uat` with keys made up for the run. On Linux it also builds the four images and
+runs both pairs with compose under the smoke script; a Windows runner has no Linux containers.
+A macOS runner is added in P7.
 
 ## 9. Risks and how the plan answers them
 
@@ -490,6 +544,8 @@ P7.
 | A host dependency silently changes a Deephaven-pinned version | F9 | `verifyDeephavenAlignment` in every app's `check` |
 | Spring's BOM raises libraries above the versions Deephaven was built with | F9 correction: thirteen libraries with Spring Boot 3.5.16 | the Spring convention plugin pins them to Deephaven's; T4 and T5 are the first run of Spring on the pinned set |
 | WebSocket or servlet clashes return when a host adds libraries | F8 | exclusion in the Spring convention plugin; T5 runs the real packaging |
+| The image is built on a JRE, or a company base image without bash or curl | F16 | the base image is one key in `repos.env`; the Dockerfile checks for bash and curl; the preflight check names the JDK; CI builds and runs the images |
+| A setting is written for one environment and forgotten for another, or a secret is committed | section 6 | `validateConfig` in `check`, with tests for each rule |
 | Someone ships the fat jar | F6 | start-up guard with a clear message; T5 negative test |
 | The host does not stop when asked | F14: Deephaven's `stop()` of the update graph can wait for ever | the framework stops it under the exclusive lock; a test stops an instance in mid-cycle, and T5 asks the packaged application to stop |
 | Host code and the framework wait for each other's locks | found in P5 during a reconnect | getters without locks, no wait under the upstream's lock; T4 keeps clients asking through an outage; every test task has a time limit |

@@ -15,8 +15,11 @@ import java.util.function.Function;
  *
  * <p>Every setting has one key with two spellings: {@code DHC_HTTP_PORT} as an environment
  * variable and {@code dhc.http.port} as a system property. Lowest precedence first: the built-in
- * default, the application's own defaults, the environment, {@code -D}. The configuration
- * directory of design section 6 arrives in phase P6 and slots in between.
+ * default, the application's own defaults, the configuration directory ({@link ConfigDirectory}:
+ * {@code defaults.env}, {@code apps/<app>.env}, {@code env/<env>.env}), the environment,
+ * {@code -D}. In the environment, in {@code -D} and in an environment file, a key scoped to the
+ * application ({@code DHC_DHC_B_HTTP_PORT} for {@code dhc-b}) wins over the plain key in the same
+ * place, so one file or one environment can serve two applications.
  */
 public final class EmbedSettings {
 
@@ -69,8 +72,9 @@ public final class EmbedSettings {
     }
 
     /**
-     * Settings for an application from the environment and {@code -D}, over the application's own
-     * defaults, over the built-in ones.
+     * Settings for an application: {@code -D}, over the environment, over the configuration
+     * directory when {@code DHC_CONFIG_DIR} names one, over the application's own defaults, over
+     * the built-in ones.
      *
      * @param appDefaults what makes this application this application, keyed like the environment
      *        ({@code DHC_APP_MODULES}, {@code DHC_HTTP_PORT}, ...)
@@ -88,18 +92,48 @@ public final class EmbedSettings {
                         + " is not a setting name. Settings are named DHC_<NAME>, for example " + HTTP_PORT + ".");
             }
         }
-        Function<String, Optional<String>> value = key -> {
-            String property = systemProperties.apply(systemPropertyName(key));
-            if (property != null && !property.isBlank()) {
-                return Optional.of(property.trim());
+        // Where the process says something, it wins; a key scoped to this application
+        // (DHC_DHC_B_HTTP_PORT) wins over the plain one in the same place.
+        Function<String, Optional<String>> process = key -> {
+            for (String name : List.of(ConfigDirectory.scopedKey(appId, key), key)) {
+                Optional<String> property = present(systemProperties.apply(systemPropertyName(name)));
+                if (property.isPresent()) {
+                    return property;
+                }
             }
-            String variable = environment.get(key);
-            if (variable != null && !variable.isBlank()) {
-                return Optional.of(variable.trim());
+            for (String name : List.of(ConfigDirectory.scopedKey(appId, key), key)) {
+                Optional<String> variable = present(environment.get(name));
+                if (variable.isPresent()) {
+                    return variable;
+                }
             }
-            return Optional.ofNullable(appDefaults.get(key)).filter(text -> !text.isBlank()).map(String::trim);
+            return Optional.empty();
         };
+        Map<String, String> files = process.apply(ConfigDirectory.CONFIG_DIR)
+                .map(directory -> ConfigDirectory.load(Path.of(directory), appId, process.apply(ConfigDirectory.ENV)))
+                .orElse(Map.of());
+        return fromLookup(appId, key -> process.apply(key)
+                .or(() -> present(files.get(key)))
+                .or(() -> present(appDefaults.get(key))));
+    }
 
+    /**
+     * Settings for an application from a host that has a configuration system of its own, such as
+     * Spring's {@code Environment}. The host is asked for each setting by its property spelling
+     * ({@code dhc.http.port}) and decides itself where the value comes from and what overrides
+     * what, the configuration directory and scoped keys included.
+     *
+     * @param properties the value of a property, or null when the host has none
+     */
+    public static EmbedSettings from(String appId, Function<String, String> properties) {
+        return fromLookup(appId, key -> present(properties.apply(systemPropertyName(key))));
+    }
+
+    private static Optional<String> present(String value) {
+        return value == null || value.isBlank() ? Optional.empty() : Optional.of(value.trim());
+    }
+
+    private static EmbedSettings fromLookup(String appId, Function<String, Optional<String>> value) {
         Builder builder = builder(appId);
         builder.lookup = value;
         value.apply(HTTP_HOST).ifPresent(builder::httpHost);
@@ -110,17 +144,6 @@ public final class EmbedSettings {
         value.apply(APP_DIR).ifPresent(text -> builder.appDir(Path.of(text)));
         value.apply(WORK_DIR).ifPresent(text -> builder.workDir(Path.of(text)));
         return builder.build();
-    }
-
-    /**
-     * Settings for an application from a host that has a configuration system of its own, such as
-     * Spring's {@code Environment}. The host is asked for each setting by its property spelling
-     * ({@code dhc.http.port}) and decides itself where the value comes from and what overrides what.
-     *
-     * @param properties the value of a property, or null when the host has none
-     */
-    public static EmbedSettings from(String appId, Function<String, String> properties) {
-        return load(appId, Map.of(), Map.of(), properties);
     }
 
     /** {@code DHC_HTTP_PORT} to {@code dhc.http.port}. */

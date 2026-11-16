@@ -26,6 +26,7 @@ final class ReposEnv {
     static final String GRADLE_DISTRIBUTIONS_URL = "DHC_GRADLE_DISTRIBUTIONS_URL";
     static final String REPO_CREDENTIALS = "DHC_REPO_CREDENTIALS";
     static final String CONTAINER_REGISTRY = "DHC_CONTAINER_REGISTRY";
+    static final String CONTAINER_BASE_IMAGE = "DHC_CONTAINER_BASE_IMAGE";
 
     static final String CREDENTIALS_NONE = "none";
     static final String CREDENTIALS_GRADLE_PROPERTIES = "gradle-properties";
@@ -36,7 +37,8 @@ final class ReposEnv {
     private static final Set<String> URL_KEYS =
             Set.of(MAVEN_REPO_URL, GRADLE_PLUGIN_REPO_URL, GRADLE_DISTRIBUTIONS_URL);
     private static final Set<String> KNOWN_KEYS = Set.of(
-            MAVEN_REPO_URL, GRADLE_PLUGIN_REPO_URL, GRADLE_DISTRIBUTIONS_URL, REPO_CREDENTIALS, CONTAINER_REGISTRY);
+            MAVEN_REPO_URL, GRADLE_PLUGIN_REPO_URL, GRADLE_DISTRIBUTIONS_URL, REPO_CREDENTIALS, CONTAINER_REGISTRY,
+            CONTAINER_BASE_IMAGE);
     private static final Pattern KEY = Pattern.compile("[A-Z][A-Z0-9_]*");
 
     private final File file;

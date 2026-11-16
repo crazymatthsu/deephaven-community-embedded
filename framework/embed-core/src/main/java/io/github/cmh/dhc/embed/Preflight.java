@@ -8,11 +8,12 @@ import java.nio.file.Path;
 import java.security.CodeSource;
 import java.util.ArrayList;
 import java.util.List;
+import javax.tools.ToolProvider;
 
 /**
  * Checks made before Deephaven is touched, for the mistakes that otherwise surface much later as
- * an error nobody can read: missing JVM flags (F3), a fat jar (F6), a taken port, a directory
- * that cannot be written.
+ * an error nobody can read: missing JVM flags (F3), a JRE instead of a JDK (F16), a fat jar (F6),
+ * a taken port, a directory that cannot be written.
  */
 final class Preflight {
 
@@ -29,6 +30,7 @@ final class Preflight {
 
     static void check(EmbedSettings settings) {
         checkJvmFlags(missingJvmFlags());
+        checkCompiler(ToolProvider.getSystemJavaCompiler() != null);
         checkNotNestedJar(codeLocation());
         checkWritable(settings.workDir());
         checkPortFree(settings.httpHost(), settings.httpPort());
@@ -64,6 +66,20 @@ final class Preflight {
                 + String.join(" ", MANDATORY_JVM_FLAGS)
                 + "\nThe Gradle run task and the installDist start script pass them already; a hand-written java"
                 + " command, an IDE run configuration or a container entry point has to pass them too.");
+    }
+
+    /**
+     * Refuses to run on a JRE (finding F16). Deephaven compiles query formulas with javac while
+     * it runs, and only a JDK has javac.
+     */
+    static void checkCompiler(boolean present) {
+        if (present) {
+            return;
+        }
+        throw new EmbeddedDeephavenException("This Java (" + System.getProperty("java.home") + ") has no compiler: it is"
+                + " a JRE, or a runtime image made without the module jdk.compiler. Deephaven compiles query formulas"
+                + " with javac while it runs, so it needs a JDK. Start the application with a JDK 21; in a container,"
+                + " build on a JDK base image (DHC_CONTAINER_BASE_IMAGE in config/repos/repos.env).");
     }
 
     /** Where this class was loaded from, as text; null when the JVM does not say. */

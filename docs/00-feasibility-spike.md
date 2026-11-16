@@ -182,6 +182,14 @@ handling, and the property that looks like the cure (`spring.web.resources.stati
 is not one, because Tomcat adds the jars' resources by a second route. A host with no static
 content of its own could set `spring.web.resources.add-mappings=false`; that was not tried here.
 
+**F16. A JRE is not enough.** Found in phase P6, with the first container image. The plan named
+a Temurin 21 JRE as the base image. On it the application does not start:
+`No Java compiler provided - are you using a JRE instead of a JDK?`. Deephaven compiles query
+formulas with `javac` while it runs (the reason behind F6 as well), and a JRE has no compiler.
+The base image is therefore a JDK (`DHC_CONTAINER_BASE_IMAGE`), the same holds for a runtime
+image made with `jlink` unless it includes `jdk.compiler`, and the preflight check now says so
+before anything starts.
+
 ## The embedding core, as it ran
 
 ```java
@@ -251,7 +259,8 @@ Start-up settings used: `-Ddeephaven.console.type=groovy`, `-Dhttp.port=<port>`,
 - ~~What B's tables do when A restarts~~: done in P4, finding F13.
 - ~~Spring on the library versions pinned to Deephaven's~~: done in P5, see F9.
 - Subscribing to a blink table across instances, as opposed to an append-only one.
-- Spring Boot 4.x, macOS and Windows, and running inside a container.
+- ~~Running inside a container~~: done in P6, finding F16.
+- Spring Boot 4.x, and a macOS runner in CI.
 - Proxying the Deephaven UI through the Spring port (single origin).
 
 Each is assigned to a phase in [02](02-implementation-phases.md).
