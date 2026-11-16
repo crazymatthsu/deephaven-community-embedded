@@ -22,12 +22,15 @@ import java.io.Reader;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -72,7 +75,7 @@ public final class EmbeddedDeephaven implements AutoCloseable {
     private final Map<String, UpstreamSettings> upstreams;
     private final Map<String, RemoteTables> remotes = new LinkedHashMap<>();
 
-    private State state = State.NEW;
+    private volatile State state = State.NEW;
     private volatile DeephavenApiServer server;
     private volatile ScriptSession scriptSession;
     private volatile ExecutionContext executionContext;
@@ -308,7 +311,8 @@ public final class EmbeddedDeephaven implements AutoCloseable {
         remotes.values().forEach(RemoteTables::close);
         // Deephaven registers how to stop itself as shutdown tasks; run them now instead of at JVM exit.
         ProcessEnvironment.getGlobalShutdownManager().maybeInvokeTasks();
-        server.getUpdateGraph().<PeriodicUpdateGraph>cast().stop();
+        // Not PeriodicUpdateGraph.stop() by itself: it can wait for ever (F14).
+        UpdateGraphStop.stop(server.getUpdateGraph().<PeriodicUpdateGraph>cast());
         // The shutdown tasks leave two thread pools running, because a standalone server exits
         // right after them. A host lives on, so end them here.
         if (executionContext.getOperationInitializer() instanceof OperationInitializationThreadPool pool) {
@@ -336,7 +340,8 @@ public final class EmbeddedDeephaven implements AutoCloseable {
         stop();
     }
 
-    public synchronized boolean isRunning() {
+    /** Takes no lock, so it answers at once also while the instance is starting or stopping. */
+    public boolean isRunning() {
         return state == State.RUNNING;
     }
 
@@ -361,6 +366,34 @@ public final class EmbeddedDeephaven implements AutoCloseable {
             throw new EmbeddedDeephavenException("There is no table '" + name + "'. Variables in scope: " + names);
         }
         throw new EmbeddedDeephavenException("'" + name + "' is a " + value.getClass().getName() + ", not a table.");
+    }
+
+    /**
+     * Every table a script has published, by name, as it is now. After a reconnect to an upstream a
+     * name refers to a new table, so ask again instead of keeping the map.
+     */
+    public Map<String, Table> tables() {
+        ScriptSession session = requireRunning().scriptSession;
+        Map<String, Table> tables = new TreeMap<>();
+        for (String name : session.getQueryScope().getParamNames()) {
+            if (session.getQueryScope().readParamValue(name, null) instanceof Table table) {
+                tables.put(name, table);
+            }
+        }
+        return tables;
+    }
+
+    /** The ids of the upstreams this instance was told about. Known before the start. */
+    public Set<String> upstreamIds() {
+        return Collections.unmodifiableSet(upstreams.keySet());
+    }
+
+    /**
+     * The connection to an upstream: its state, when it changed, how often it was made anew.
+     * Empty until this instance has started, and for an id that is not one of {@link #upstreamIds()}.
+     */
+    public Optional<RemoteTables> upstream(String id) {
+        return server == null ? Optional.empty() : Optional.ofNullable(remotes.get(id));
     }
 
     /** Safe access to tables for host code (F4). */

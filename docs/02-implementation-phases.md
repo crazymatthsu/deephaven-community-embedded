@@ -152,7 +152,8 @@ The feasibility spike, the design and this phase plan. No code.
 - B does not recover on its own: its tables fail within half a second of A going away and stay
   failed. The implemented answer is to reconnect and run the application scripts again; the
   limits (look tables up by name, reopen IDE panels, A's history is A's) are in the design and
-  each has a test.
+  each has a test. (P5 corrected one detail: an open panel shows an error, it does not keep
+  showing its last rows.)
 - A's `TransactTime` start has to be a setting (`DHC_GEN_START_TIME`), or a second process
   cannot know what A's tables will contain.
 - The child process is started with `java` on the distribution's application jar, not with the
@@ -183,6 +184,36 @@ The feasibility spike, the design and this phase plan. No code.
 - T5: the extracted layout starts and passes the same checks; the fat jar is refused with the
   expected message.
 - Stopping A turns the `dhc-a` health indicator down without stopping the Spring application.
+
+**Found while building it** (findings F14 and F15, and the design):
+
+- Spring runs on the library versions pinned to Deephaven's. No library needed Spring's
+  version back.
+- A Spring host asked to stop sometimes did not: Deephaven's `PeriodicUpdateGraph.stop()` can
+  wait for ever (F14). The framework now stops the update graph under its exclusive lock. This
+  was in `embed-core` since P2 and affects every host whose `stop()` is called.
+- The reconnect of P4 could deadlock with host code: a request thread that held the update
+  graph's lock asked the upstream for its state, while the reconnecting thread held the
+  upstream's lock and waited for the update graph's. The page asks for the summary every two
+  seconds, which was enough to hit it by hand. The upstream's getters and `isRunning()` no
+  longer take a lock, a subscription no longer waits under the upstream's lock, and a test keeps
+  clients asking through an outage. With the old locking that test hangs.
+- The lifecycle order in the plan was the wrong way round for a web application: Deephaven
+  starts before the web server and stops after it.
+- An open table panel or widget does not keep its last rows through an outage, as P4 wrote; it
+  shows an error over them. The page opens its widgets again after a reconnect.
+- Spring MVC also serves Deephaven's web files from its own port (F15). Left as it is.
+- `Process.destroy()` closes the parent's end of a child's output, so the test kit lost what a
+  child printed while stopping. `ChildApp.stop()` now signals through the process handle and
+  says whether the child ended by itself. Windows has no such request; there the stop checks
+  are skipped.
+- `InstanceA` moved to the test fixtures of `dhc-b-module`, so that the Spring host's tests use
+  the same A as the plain ones.
+- Every test task now has a time limit of twenty minutes: a locking mistake makes a test wait
+  for ever, and a build that says which task ran out of time is better than one that says
+  nothing.
+- Stopping takes about a second with no client connected and about ten with browsers connected,
+  ending with a harmless `TimeoutException` from Deephaven's Jetty. For the runbook in P7.
 
 ## P6. Configuration, scripts, containers and the full host matrix
 

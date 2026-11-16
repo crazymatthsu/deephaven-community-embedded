@@ -48,7 +48,8 @@ jobs:
       - name: ./gradlew check
         run: ./gradlew check
 
-      # Two instances in two processes: A from its installed distribution, B subscribing to it.
+      # Two instances in two processes: A from its installed distribution, B subscribing to it,
+      # in a plain host and in Spring Boot, the latter also as its packaged, extracted layout.
       - name: ./gradlew integrationTest
         run: ./gradlew integrationTest
 

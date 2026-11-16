@@ -10,6 +10,7 @@ import io.deephaven.qst.table.TicketTable;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -36,9 +37,10 @@ import org.slf4j.LoggerFactory;
  *
  * <p>What that means for whoever reads the tables: look a table up by name each time
  * ({@code EmbeddedDeephaven.table(name)}), because after a reconnect the name refers to a new
- * table. A table object obtained before the outage, a panel open in the web IDE included, keeps
- * showing the last rows it had and has to be reopened. The upstream's own history is its own
- * business: if it restarted empty, the new tables start empty.
+ * table. A table object obtained before the outage keeps the last rows it had and is not updated
+ * again; a panel or widget open in a browser shows an error over them and has to be reopened.
+ * The upstream's own history is its own business: if it restarted empty, the new tables start
+ * empty.
  */
 public final class RemoteTables implements AutoCloseable {
 
@@ -89,6 +91,13 @@ public final class RemoteTables implements AutoCloseable {
     private long reconnects;
     private String lastError;
 
+    /**
+     * What the getters answer from. They take no lock: a host thread asks for the state from
+     * anywhere, also while it holds the update graph's lock, and must never wait for a subscription
+     * that is waiting for that same lock.
+     */
+    private volatile Status latest;
+
     private volatile boolean closed;
     private Thread watcher;
 
@@ -110,19 +119,40 @@ public final class RemoteTables implements AutoCloseable {
                 .column("LastError", Status::lastError)
                 .column("Timestamp", Status::timestamp)
                 .build();
+        this.latest = new Status(settings.id(), settings.url(), state, since, 0, 0, null, since);
     }
 
     public String id() {
         return settings.id();
     }
 
-    public synchronized State state() {
-        return state;
+    public State state() {
+        return latest.state();
+    }
+
+    /** Where the upstream is. Never contains the key. */
+    public String url() {
+        return settings.url();
+    }
+
+    /** When the connection entered the state it is in. */
+    public Instant since() {
+        return latest.since();
+    }
+
+    /** How many of the upstream's tables are subscribed to right now; 0 while it is away. */
+    public int subscriptions() {
+        return latest.subscriptions();
+    }
+
+    /** Why the connection is not up, in a sentence; empty while it is. */
+    public Optional<String> lastError() {
+        return Optional.ofNullable(latest.lastError());
     }
 
     /** How often the connection has been made anew after being lost. */
-    public synchronized long reconnects() {
-        return reconnects;
+    public long reconnects() {
+        return latest.reconnects();
     }
 
     /**
@@ -131,13 +161,21 @@ public final class RemoteTables implements AutoCloseable {
      *
      * @throws EmbeddedDeephavenException if the upstream does not answer, refuses the login, or has no such table
      */
-    public synchronized Table subscribe(String tableName) {
-        BarrageSession current = connected();
+    public Table subscribe(String tableName) {
+        BarrageSession current;
+        synchronized (this) {
+            current = connected();
+        }
         try {
+            // Not under this object's lock: the wait gives up the update graph's lock and takes it
+            // again, and a thread that held one while wanting the other would never get it.
             Table table = current.subscribe(TicketTable.fromQueryScopeField(tableName), OPTIONS)
                     .entireTable()
                     .get(settings.connectTimeout().toMillis(), TimeUnit.MILLISECONDS);
-            subscriptions.add(table);
+            synchronized (this) {
+                subscriptions.add(table);
+                publishStatus();
+            }
             return table;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -325,8 +363,10 @@ public final class RemoteTables implements AutoCloseable {
     }
 
     private synchronized void publishStatus() {
-        statusPublisher.offer(new Status(settings.id(), settings.url(), state, since, subscriptions.size(), reconnects,
-                lastError, Instant.now()));
+        Status status = new Status(settings.id(), settings.url(), state, since, subscriptions.size(), reconnects,
+                lastError, Instant.now());
+        latest = status;
+        statusPublisher.offer(status);
     }
 
     private void closeSession() {

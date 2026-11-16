@@ -1,7 +1,7 @@
 // Spring hosts: a Spring Boot application that runs Deephaven in-process.
 //
-// P1 gives it its dependency rules and the mandatory JVM flags.
-// P5 adds extractBootJar (F7) and the rest of the run and packaging behaviour.
+// Dependency rules (F8, F9), the mandatory JVM flags (F3), and the layout it runs from outside
+// Gradle: extractBootJar (F7).
 
 import io.github.cmh.dhc.buildlogic.DeephavenAlignmentExtension
 import io.github.cmh.dhc.buildlogic.DeephavenRules
@@ -9,6 +9,7 @@ import io.github.cmh.dhc.buildlogic.lib
 import io.github.cmh.dhc.buildlogic.libs
 import io.github.cmh.dhc.buildlogic.moduleVersions
 import io.github.cmh.dhc.buildlogic.version
+import org.springframework.boot.gradle.tasks.bundling.BootJar
 import org.springframework.boot.gradle.tasks.run.BootRun
 
 plugins {
@@ -64,6 +65,56 @@ configurations.named("implementation") {
     )
 }
 
+// `bootRun` is the development way to start a host, so it gets the development settings. The
+// extracted layout gets none of these and starts with the safe defaults.
 tasks.named<BootRun>("bootRun") {
     jvmArgs(DeephavenRules.mandatoryJvmFlags) // F3
+    // Anonymous access for development only (decision D6); DHC_AUTH_MODE in the environment wins.
+    environment("DHC_AUTH_MODE", providers.environmentVariable("DHC_AUTH_MODE").getOrElse("anonymous"))
+    // The instance's own directory (F10) stays inside build/, so `clean` removes it.
+    environment(
+        "DHC_WORK_DIR",
+        providers.environmentVariable("DHC_WORK_DIR").getOrElse(layout.buildDirectory.dir("dhc-work").get().asFile.absolutePath),
+    )
+}
+
+// F6 and F7: Deephaven cannot run from Spring Boot's fat jar, because javac cannot read a jar
+// within a jar. Spring Boot's own tool unpacks the fat jar into a thin application jar, whose
+// manifest lists the libraries, and a lib/ directory beside it. That layout is what runs outside
+// Gradle and what a container image copies:
+//
+//     java @build/extracted/jvm.args -jar build/extracted/<app>.jar
+//
+// jvm.args holds the mandatory JVM flags (F3), one per line, in the form `java @file` reads.
+val bootJar = tasks.named<BootJar>("bootJar") {
+    // <app>.jar, without a version: the name is written into run commands and container files.
+    archiveVersion = ""
+}
+val extractBootJar = tasks.register<JavaExec>("extractBootJar") {
+    group = "build"
+    description = "Unpacks the Spring Boot jar into the layout Deephaven can run from: a thin jar, lib/ and jvm.args."
+    val fatJar = bootJar.flatMap { it.archiveFile }
+    val destination = layout.buildDirectory.dir("extracted")
+    val flags = DeephavenRules.mandatoryJvmFlags
+    inputs.file(fatJar).withPropertyName("bootJar").withPathSensitivity(PathSensitivity.NONE)
+    inputs.property("jvmFlags", flags)
+    outputs.dir(destination).withPropertyName("extracted")
+    // The same as `java -Djarmode=tools -jar <app>.jar extract`.
+    classpath(fatJar)
+    mainClass = "org.springframework.boot.loader.launch.JarLauncher"
+    systemProperty("jarmode", "tools")
+    argumentProviders.add(
+        CommandLineArgumentProvider { listOf("extract", "--force", "--destination", destination.get().asFile.absolutePath) }
+    )
+    doFirst {
+        // The tool adds to what is there; a library that is no longer a dependency must not stay.
+        project.delete(destination)
+    }
+    doLast {
+        destination.get().file("jvm.args").asFile.writeText(flags.joinToString("\n", postfix = "\n"))
+    }
+}
+
+tasks.named("assemble") {
+    dependsOn(extractBootJar)
 }

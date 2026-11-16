@@ -112,6 +112,17 @@ public final class EmbedSettings {
         return builder.build();
     }
 
+    /**
+     * Settings for an application from a host that has a configuration system of its own, such as
+     * Spring's {@code Environment}. The host is asked for each setting by its property spelling
+     * ({@code dhc.http.port}) and decides itself where the value comes from and what overrides what.
+     *
+     * @param properties the value of a property, or null when the host has none
+     */
+    public static EmbedSettings from(String appId, Function<String, String> properties) {
+        return load(appId, Map.of(), Map.of(), properties);
+    }
+
     /** {@code DHC_HTTP_PORT} to {@code dhc.http.port}. */
     static String systemPropertyName(String key) {
         return key.toLowerCase(Locale.ROOT).replace('_', '.');

@@ -17,9 +17,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 /**
- * Another application of this repository, run as a process of its own from its installed
- * distribution ({@code ./gradlew :apps:<app>:installDist}). Deephaven is one per JVM (F10), so a
- * test with two instances needs two JVMs: one is the test's, the other is this.
+ * Another application of this repository, run as a process of its own: a plain Java host from
+ * its installed distribution ({@code ./gradlew :apps:<app>:installDist}), a Spring Boot host from
+ * a jar ({@code extractBootJar}). Deephaven is one per JVM (F10), so a test with two instances
+ * needs two JVMs: one is the test's, the other is this.
  *
  * <pre>{@code
  * try (ChildApp a = ChildApp.distribution(installDir, "io.github.cmh.dhc.apps.dhca.java.DhcAJavaApp")
@@ -72,6 +73,14 @@ public final class ChildApp implements AutoCloseable {
         return new Builder(installDir, mainClass);
     }
 
+    /**
+     * An application that is one runnable jar, started as {@code java -jar}: the thin jar of a
+     * Spring Boot host's extracted layout, or its fat jar to see it refused.
+     */
+    public static Builder executableJar(Path jar) {
+        return new Builder(jar);
+    }
+
     /** A port nothing listens on right now. Another process could take it before it is used; tests accept that. */
     public static int freePort() {
         try (ServerSocket socket = new ServerSocket(0)) {
@@ -102,6 +111,20 @@ public final class ChildApp implements AutoCloseable {
         }
     }
 
+    /** Waits for the application to end by itself and returns its exit status; fails when the time is up. */
+    public int awaitExit(Duration timeout) {
+        try {
+            if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                throw new AssertionError(name + " was still running after " + timeout + ". Its output:\n" + output);
+            }
+            reader.join(5_000);
+            return process.exitValue();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while waiting for " + name + " to end");
+        }
+    }
+
     public boolean isAlive() {
         return process.isAlive();
     }
@@ -111,9 +134,15 @@ public final class ChildApp implements AutoCloseable {
         return output.toString();
     }
 
-    /** Asks the application to stop, as Ctrl-C or a container runtime would, and waits for it. */
-    public void stop() {
-        end(false);
+    /**
+     * Asks the application to stop, as Ctrl-C or a container runtime would, and waits for it.
+     * Where the operating system has no such request (Windows), the process is simply ended.
+     *
+     * @return true if the application ended by itself within a minute of being asked; false if it
+     *         had to be ended, or could only be ended
+     */
+    public boolean stop() {
+        return end(false);
     }
 
     /** Ends the application at once, as a crash or power loss would: nothing in it gets to clean up. */
@@ -121,14 +150,24 @@ public final class ChildApp implements AutoCloseable {
         end(true);
     }
 
-    private void end(boolean forcibly) {
+    /** Whether {@link #stop()} is a request the application gets to act on, and to log. */
+    public static boolean canAskToStop() {
+        return ProcessHandle.current().supportsNormalTermination();
+    }
+
+    private boolean end(boolean forcibly) {
+        boolean asked = !forcibly && canAskToStop();
         if (forcibly) {
             process.destroyForcibly();
         } else {
-            process.destroy();
+            // The handle's destroy, not the process's: Process.destroy() also closes this side of the
+            // application's output, and what it prints while stopping would be lost.
+            process.toHandle().destroy();
         }
+        boolean byItself = false;
         try {
-            if (!process.waitFor(60, TimeUnit.SECONDS)) {
+            byItself = process.waitFor(60, TimeUnit.SECONDS) && asked;
+            if (process.isAlive()) {
                 process.destroyForcibly();
                 process.waitFor(30, TimeUnit.SECONDS);
             }
@@ -136,6 +175,7 @@ public final class ChildApp implements AutoCloseable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+        return byItself;
     }
 
     /** Stops the application if it is still running. */
@@ -149,11 +189,20 @@ public final class ChildApp implements AutoCloseable {
     public static final class Builder {
         private final Path installDir;
         private final String mainClass;
+        private final Path executableJar;
+        private Path jvmArgsFile;
         private final Map<String, String> environment = new LinkedHashMap<>();
 
         private Builder(Path installDir, String mainClass) {
             this.installDir = installDir;
             this.mainClass = mainClass;
+            this.executableJar = null;
+        }
+
+        private Builder(Path executableJar) {
+            this.installDir = null;
+            this.mainClass = null;
+            this.executableJar = executableJar;
         }
 
         /** A setting for the application, as it would get it in production: an environment variable. */
@@ -162,16 +211,39 @@ public final class ChildApp implements AutoCloseable {
             return this;
         }
 
+        /**
+         * Takes the JVM flags from a file, as {@code java @file} does, instead of passing them one
+         * by one: the {@code jvm.args} that {@code extractBootJar} writes beside the jar.
+         */
+        public Builder jvmArgsFile(Path file) {
+            this.jvmArgsFile = file;
+            return this;
+        }
+
         public ChildApp start() {
-            String name = installDir.getFileName().toString();
-            Path jar = applicationJar(name);
+            Path jar = executableJar != null ? executableJar : applicationJar(installDir.getFileName().toString());
+            if (!Files.isRegularFile(jar)) {
+                throw new IllegalStateException(jar + " does not exist. Build it first.");
+            }
+            String name = executableJar != null
+                    ? jar.getFileName().toString().replaceFirst("\\.jar$", "")
+                    : installDir.getFileName().toString();
             List<String> command = new ArrayList<>();
             command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
-            command.addAll(JVM_FLAGS);
-            // One jar: its manifest lists the others, which is also what keeps this command short on Windows.
-            command.add("-cp");
-            command.add(jar.toString());
-            command.add(mainClass);
+            if (jvmArgsFile != null) {
+                command.add("@" + jvmArgsFile);
+            } else {
+                command.addAll(JVM_FLAGS);
+            }
+            if (executableJar != null) {
+                command.add("-jar");
+                command.add(jar.toString());
+            } else {
+                // One jar: its manifest lists the others, which is also what keeps this command short on Windows.
+                command.add("-cp");
+                command.add(jar.toString());
+                command.add(mainClass);
+            }
             ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
             // The child gets what is asked for here and nothing of this build's own settings.
             builder.environment().keySet().removeIf(key -> key.startsWith("DHC_"));
