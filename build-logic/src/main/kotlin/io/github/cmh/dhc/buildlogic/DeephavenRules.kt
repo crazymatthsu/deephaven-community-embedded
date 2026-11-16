@@ -92,6 +92,32 @@ object DeephavenRules {
     )
 
     /**
+     * The settings of the development start (`run`, `bootRun`), as environment variables. What is
+     * already set in the environment of the build stays as it is.
+     *
+     *  - The repository's `config/` directory with the environment `dev`, which is where
+     *    anonymous access for development is written down (decision D6). `DHC_ENV=uat ./gradlew
+     *    ...:run` starts the same code with the settings of another environment.
+     *  - The instance's own directory (F10) inside `build/`, so `clean` removes it.
+     *
+     * A build without a `config/` directory (the fixture builds) gets anonymous access directly.
+     */
+    fun developmentEnvironment(project: Project): Map<String, String> {
+        val set = { name: String -> project.providers.environmentVariable(name).orNull }
+        val environment = linkedMapOf<String, String>()
+        val config = project.rootProject.layout.projectDirectory.dir("config").asFile
+        if (config.resolve("defaults.env").isFile) {
+            environment["DHC_CONFIG_DIR"] = set("DHC_CONFIG_DIR") ?: config.absolutePath
+            environment["DHC_ENV"] = set("DHC_ENV") ?: "dev"
+        } else {
+            environment["DHC_AUTH_MODE"] = set("DHC_AUTH_MODE") ?: "anonymous"
+        }
+        environment["DHC_WORK_DIR"] =
+            set("DHC_WORK_DIR") ?: project.layout.buildDirectory.dir("dhc-work").get().asFile.absolutePath
+        return environment
+    }
+
+    /**
      * Applies the rules that hold for every module with Deephaven on its classpath:
      * the Deephaven BOM as an enforced platform (F9), no Kafka extension (F2), and the mandatory
      * JVM flags on tests (F3).

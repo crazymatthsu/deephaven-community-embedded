@@ -13,18 +13,28 @@ names, plugin ids and `DHC_*` keys is Deephaven Community Core.
 
 ## Status
 
-Phase P5 of seven: roles A and B, A in a plain Java host, B in a plain Java host and in a
-Spring Boot application. Instance A shows mock order executions and the application's own order
-cache as five live tables. Instance B subscribes to A's tables, derives its own, and reconnects
-by itself when A goes away and comes back. In Spring Boot, B also has a REST API, health
-indicators and a page of its own with Deephaven's tables embedded in it.
+Phase P6 of seven: both roles in both kinds of host, settings as files for dev, uat and prod,
+scripts that start and check a pair of instances, and container images.
+
+- **Instance A** shows mock order executions and the application's own order cache as five live
+  tables.
+- **Instance B** subscribes to A's tables, derives its own, and reconnects by itself when A goes
+  away and comes back.
+- Each runs in a plain Java host (`dhc-a-java`, `dhc-b-java`) or in a Spring Boot application
+  (`dhc-a-spring`, `dhc-b-spring`). In Spring Boot, B also has a REST API, health indicators and
+  a page of its own with Deephaven's tables embedded in it.
+
+### Try it
 
 ```bash
-./gradlew :apps:dhc-a-java:run          # in one terminal
-./gradlew :apps:dhc-b-spring:bootRun    # in another; it waits for A
+./gradlew installDist extractBootJar    # build every application
+scripts/check_env.sh                    # does this machine have what is needed?
+scripts/demo.sh up                      # start A, then B
+scripts/smoke.sh                        # check that B holds what A has
+scripts/demo.sh down
 ```
 
-then open:
+On Windows, in Git Bash: `bash scripts/demo.sh up`. While the pair is up:
 
 | Address | What |
 |---|---|
@@ -35,28 +45,26 @@ then open:
 | <http://localhost:10000/ide/> | A's Deephaven web IDE |
 
 A Spring host has two ports: Spring MVC on 8081, Deephaven's own server on 10001.
-`./gradlew :apps:dhc-b-java:run` is the same role B without Spring.
+`scripts/demo.sh up secondary` runs the other pair, A in Spring Boot and B in plain Java.
 
-`run` and `bootRun` are the development start: anonymous access, on localhost only. Outside
-Gradle the applications ask for a key, which Deephaven prints at start unless `DHC_AUTH_PSK`
-supplies one:
+### Other ways to start
 
-```bash
-./gradlew :apps:dhc-a-java:installDist :apps:dhc-b-spring:extractBootJar
-apps/dhc-a-java/build/install/dhc-a-java/bin/dhc-a-java
-cd apps/dhc-b-spring/build/extracted && java @jvm.args -jar dhc-b-spring.jar
-```
+| How | Command |
+|---|---|
+| One application from Gradle, for development | `./gradlew :apps:dhc-a-java:run`, `./gradlew :apps:dhc-b-spring:bootRun` |
+| One application as built, in the foreground | `scripts/run.sh dhc-b-spring` |
+| Another environment | `DHC_ENV=uat scripts/demo.sh up`, after setting the three keys it asks for |
+| Containers | `./gradlew buildImages`, then `docker compose -f docker/compose.yaml up -d` (or `podman compose`) |
 
-B has to present A's key: put it in `DHC_UPSTREAM_DHC_A_PSK` in B's environment, and give both
-a key of your choosing with `DHC_AUTH_PSK`. B's page then opens as
-`http://localhost:8081/?psk=<B's key>`.
-
-Spring Boot's fat jar is not a way to run it: Deephaven compiles formulas with `javac`, which
-cannot read a jar inside a jar, so the application refuses to start from one and says so.
+The environment `dev` lets anybody in, on localhost only. `uat` and `prod` ask for a key, and
+the keys are never in a file: [config/README.md](config/README.md) names the three environment
+variables. Spring Boot's fat jar is not a way to run an application here: Deephaven compiles
+formulas with `javac`, which cannot read a jar inside a jar, so the application refuses to
+start from one and says so. For the same reason it needs a JDK, not a JRE.
 
 | Document | What it holds |
 |---|---|
-| [docs/00-feasibility-spike.md](docs/00-feasibility-spike.md) | what was run and what it showed: fifteen findings, including the three that would have broken a naive attempt |
+| [docs/00-feasibility-spike.md](docs/00-feasibility-spike.md) | what was run and what it showed: sixteen findings, including the three that would have broken a naive attempt |
 | [docs/01-design.md](docs/01-design.md) | architecture, repository layout, build logic, the framework, the two roles, configuration for dev / UAT / production, packaging, testing, risks |
 | [docs/02-implementation-phases.md](docs/02-implementation-phases.md) | seven phases with deliverables and acceptance checks, and the decisions still open |
 

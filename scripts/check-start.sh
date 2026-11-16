@@ -9,10 +9,11 @@
 # Needs curl. Runs on macOS bash 3.2, Linux and Windows Git Bash.
 
 set -eu
+DHC_LIB_NAME=check-start
+. "$(dirname "$0")/lib.sh"
 
 fail() {
-    echo "check-start: $1" >&2
-    exit 1
+    dhc_fail "$1"
 }
 
 [ $# -ge 1 ] || fail "usage: scripts/check-start.sh <app> [port]"
@@ -34,8 +35,10 @@ DHC_HTTP_PORT="$port" DHC_WORK_DIR="$work/work" "$start" > "$log" 2>&1 &
 pid=$!
 
 stop() {
-    kill "$pid" 2> /dev/null || true
+    dhc_stop_process "$pid" 40 || true
     wait "$pid" 2> /dev/null || true
+    # Leave the port free for whatever runs next.
+    dhc_wait_until_silent "http://localhost:$port/ide/" 30 || true
 }
 trap stop EXIT
 

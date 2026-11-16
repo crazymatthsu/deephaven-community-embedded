@@ -25,6 +25,9 @@ include("apps:dhc-b-spring")
 include("apps:dhc-a-spring")
 include("apps:dhc-b-java")
 
+// A client, not a host: reads a table of a running instance, for scripts/smoke.sh.
+include("apps:dhc-probe")
+
 // Non-Java directories that own tasks and take part in `check`.
 include("config")
 include("scripts")

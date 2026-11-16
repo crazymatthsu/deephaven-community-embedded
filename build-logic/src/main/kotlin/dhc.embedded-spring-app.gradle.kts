@@ -69,13 +69,7 @@ configurations.named("implementation") {
 // extracted layout gets none of these and starts with the safe defaults.
 tasks.named<BootRun>("bootRun") {
     jvmArgs(DeephavenRules.mandatoryJvmFlags) // F3
-    // Anonymous access for development only (decision D6); DHC_AUTH_MODE in the environment wins.
-    environment("DHC_AUTH_MODE", providers.environmentVariable("DHC_AUTH_MODE").getOrElse("anonymous"))
-    // The instance's own directory (F10) stays inside build/, so `clean` removes it.
-    environment(
-        "DHC_WORK_DIR",
-        providers.environmentVariable("DHC_WORK_DIR").getOrElse(layout.buildDirectory.dir("dhc-work").get().asFile.absolutePath),
-    )
+    environment(DeephavenRules.developmentEnvironment(project))
 }
 
 // F6 and F7: Deephaven cannot run from Spring Boot's fat jar, because javac cannot read a jar

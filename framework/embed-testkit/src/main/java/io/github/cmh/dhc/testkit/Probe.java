@@ -51,7 +51,9 @@ public final class Probe {
 
     /** Exits with 0 and prints the result, or with 1 and one line that says what went wrong. */
     public static void main(String[] args) {
-        System.exit(run(args, Optional.ofNullable(System.getenv(KEY_VARIABLE)), System.out, System.err));
+        // An empty variable is "no key": a script that has none to give still sets the name.
+        Optional<String> key = Optional.ofNullable(System.getenv(KEY_VARIABLE)).filter(value -> !value.isBlank());
+        System.exit(run(args, key, System.out, System.err));
     }
 
     /** {@link #main} without the exit, for tests. */

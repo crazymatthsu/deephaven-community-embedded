@@ -1,6 +1,6 @@
 // Environment and application settings, and the artifact sources in repos/.
-// validateConfig and the packaging of this directory arrive in phase P6.
+// validateConfig (part of check) and configArchive come from the plugin.
 
 plugins {
-    base
+    id("dhc.config")
 }
