@@ -77,7 +77,7 @@ deephaven-community-embedded/
 ```
 
 `config`, `scripts`, `docker` and `docs` are registered as Gradle subprojects with the `base`
-plugin so each can own tasks (`validateConfig`, `shellcheck`, `buildImages`, link checks) and
+plugin so each can own tasks (`validateConfig`, `checkScripts`, `buildImages`, `checkDocs`) and
 take part in `./gradlew check`.
 
 Gradle project paths: `:framework:embed-core`, `:apps:dhc-a-java`, and so on.
@@ -116,9 +116,12 @@ by build-logic and by the test fixture builds alike, and the rule "repositories 
 | `dhc.java-conventions` | every Java module | Java 21 toolchain, UTF-8, warnings as errors (`-Xlint:all` without `processing`, which Dagger's processor path would trip), JUnit 5, reproducible archives |
 | `dhc.deephaven-library` | `framework/*`, role modules | Deephaven BOM as an enforced platform (F9), the Kafka extension excluded (F2), Dagger and its processor (F1), the mandatory JVM flags on tests (F3), a JVM of its own for every test class (F10), javac's `classfile` lint off (Deephaven's classes refer to annotations it does not publish) |
 | `dhc.groovy-app-module` | `apps/*-module` | packages `src/main/appmode/` into the jar under `META-INF/dhc/app.d/` with an index of its files; `validateAppModule` checks the `.app` keys, that each `file_N` exists and that every script parses, and a module that fails it is not packaged. It runs on the module's own classpath, so scripts are parsed by Deephaven's Groovy 3 and not by Gradle's Groovy 4 |
-| `dhc.embedded-java-app` | plain Java hosts | `application` plugin; the mandatory JVM flags (F3) on `run`, tests and the start script; Logback as the SLF4J backend; `run` gets the development settings (anonymous access, a work directory under `build/`), the installed distribution gets none of them; the config directory is wired in by P6 |
+| `dhc.embedded-java-app` | plain Java hosts | `application` plugin; the mandatory JVM flags (F3) on `run`, tests and the start script; Logback as the SLF4J backend; `run` takes its settings from the repository's `config/` with the environment `dev` and a work directory under `build/`, the installed distribution gets none of them |
 | `dhc.embedded-spring-app` | Spring hosts | Spring Boot plugin **without** `io.spring.dependency-management` (applying it fails the build), Spring's BOM as a plain platform and every library Deephaven brings pinned to Deephaven's version (F9), Tomcat WebSocket excluded (F8), JVM flags on `bootRun` and tests, an `extractBootJar` task (F7) |
 | `dhc.verify-alignment` | every app (the two app plugins apply it) | `verifyDeephavenAlignment` fails the build if any library on the app's runtime classpath resolved to a different version than Deephaven alone resolves it to |
+| `dhc.config` | `config/` | `validateConfig`: the format of the settings files, no secrets, no unknown keys, the same keys in every environment; `configArchive` |
+| `dhc.scripts` | `scripts/` | `checkScripts`: nothing in `scripts/*.sh` and `docker/*.sh` that macOS bash 3.2 or the BSD tools refuse, no Windows line endings, `set -eu`. It reads the scripts as text, so it answers the same on every machine |
+| `dhc.docs` | `docs/` | `checkDocs`: every link from one Markdown document to a file or a heading of the repository leads somewhere. Other sites are not followed |
 
 `verifyDeephavenAlignment` is the guard against F9 regressing silently when a host adds a
 dependency. "Deephaven alone" is computed, not listed: the `io.deephaven` modules found on the
@@ -214,8 +217,11 @@ Responsibilities:
   to be reopened); and the upstream's history is
   its own business, so if it came back empty the new tables start empty. The status table is the
   instance's own and keeps working throughout.
-- **Preflight checks with actionable messages**: missing JVM flags (F3), running from a nested
-  fat jar (F6), port in use, directory not writable.
+- **Preflight checks with actionable messages**: missing JVM flags (F3), a JRE (F16), running
+  from a nested fat jar (F6), port in use, directory not writable, and an application script
+  whose path is too long for Deephaven to compile it (F17). For the last one the framework first
+  gives Deephaven the application directory relative to the directory the JVM was started in,
+  when that is shorter, so that a deep checkout costs nothing.
 - **Process side effects** (F5): one policy object, `SideEffectPolicy`, with three switches:
   `replaceStandardStreams`, `exitJvmOnFatalError` and `installShutdownHooks`. Default for the
   plain Java host: Deephaven's behaviour, all three on. Default for the Spring host and for
@@ -520,8 +526,8 @@ podman, from `docker/Dockerfile.java-app` and `docker/Dockerfile.spring-app`.
 
 | Level | What | Where it runs |
 |---|---|---|
-| T1 unit | settings precedence, generator determinism, oracle, config validation | plain JUnit, no engine |
-| T2 engine | role A's tables equal the oracle for a fixed seed and event count; engine access helper; publisher batching | one embedded instance per test JVM (F10) |
+| T1 unit | settings precedence, generator determinism, oracle, config validation, the rewriting of storage paths under Windows' rules (F11); the build's own rules, with a fixture build for each (`ConventionPluginsTest`) | plain JUnit, no engine; Gradle TestKit |
+| T2 engine | role A's tables equal the oracle for a fixed seed and event count; engine access helper; publisher batching; a stop in mid-cycle (F14); the web IDE's storage requests over the network (F11) | one embedded instance per test JVM (F10) |
 | T3 two-process | A started as a child process from its installed distribution, B subscribes in the test's JVM; B's tables equal the oracle; with a key, a wrong key, no key; A killed and restarted, stopped and restarted; the probe | `integrationTest` task of `dhc-b-module` |
 | T4 Spring | context starts with embedded Deephaven, REST and health answer, closing the context leaves no threads; with A as a child process the REST answers equal the oracle, and A killed and restarted under two clients that keep asking | `@SpringBootTest`, in `embed-spring` and in the `integrationTest` task of `dhc-b-spring` |
 | T5 packaging | the extracted Spring layout starts as a process with `java @jvm.args -jar` and passes the same HTTP checks as T4, then stops when asked; the fat jar is refused with the expected message. The installed distribution of a plain Java host is started by `scripts/check-start.sh` | `integrationTest` task of `dhc-b-spring`; CI |
@@ -529,13 +535,14 @@ podman, from `docker/Dockerfile.java-app` and `docker/Dockerfile.spring-app`.
 The deterministic generator with an event limit is what makes T2 to T4 exact rather than
 "eventually something arrives".
 
-CI: GitHub Actions with Temurin 21, on Linux and on Windows in Git Bash, running
+CI: GitHub Actions with Temurin 21, on Linux, on macOS and on Windows in Git Bash, running
 `./gradlew check`, `./gradlew integrationTest`, the wrapper script, a start of the installed
 distribution from its start script, and then the applications as shipped: `demo.sh up`,
 `smoke.sh` and `demo.sh down` for the primary pair, the secondary pair, and the primary pair
 under `DHC_ENV=uat` with keys made up for the run. On Linux it also builds the four images and
-runs both pairs with compose under the smoke script; a Windows runner has no Linux containers.
-A macOS runner is added in P7.
+runs both pairs with compose under the smoke script; a Windows runner has no Linux containers
+and a macOS runner no container runtime. The macOS runner is Apple silicon with the bash 3.2
+that macOS ships, the oldest shell the scripts promise to run in.
 
 ## 9. Risks and how the plan answers them
 
@@ -552,7 +559,11 @@ A macOS runner is added in P7.
 | Deephaven's process-wide handlers surprise the host | F5 | explicit side-effect policy per host, tested in T4 |
 | B does not recover when A restarts | F13: measured, it does not | `RemoteTables` reconnects and has the scripts run again; T3 kills and restarts A and holds B to the documented behaviour |
 | Authenticated subscription differs from the anonymous path | F12: it does; subscribing by address cannot log in | `RemoteTables` always makes its own session; T3 runs with a key, a wrong key and no key |
-| Upgrading Deephaven moves internal module names | F1 uses semi-internal Dagger modules | all of it is in one class in `embed-core`; an upgrade checklist in the docs |
+| Upgrading Deephaven moves internal module names | F1 uses semi-internal Dagger modules | all of it is in one class in `embed-core`, `EmbeddedComponentFactory`; [05](05-upgrade-checklist.md) lists it and everything else that relies on Deephaven's insides, with the test that judges each |
+| The web IDE cannot keep layouts and notebooks on Windows | F11: Deephaven's storage service misreads its own paths there | an interceptor in our component; a test that sends the web IDE's requests, on all three systems in CI |
+| The application is checked out or installed deep in the file system | F17: Deephaven makes a file name of each script's whole path | the path is given relative to where the JVM starts; what is still too long is refused before the start, with its length |
+| A script picks up something only a newer bash or the GNU tools have | the scripts are written on machines that have both | `checkScripts` in `check`; CI runs every script on macOS, Linux and Windows Git Bash |
+| A document sends the reader to a file or heading that was renamed | the documents send a reader from a symptom to a finding to a design section | `checkDocs` in `check` |
 | Licence | the engine is under the Deephaven Community License, this repository's code is MIT | stated in the README; to be read before embedding in a shipped product |
 
 ## 10. Decisions taken by default

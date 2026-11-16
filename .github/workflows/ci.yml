@@ -27,6 +27,10 @@ jobs:
           # of this repository have to work in there.
           - name: Windows Git Bash
             os: windows-latest
+          # Apple silicon, and the bash 3.2 that macOS ships: the oldest shell the scripts
+          # promise to run in. scripts/check_env.sh prints which bash it was.
+          - name: macOS
+            os: macos-latest
     defaults:
       run:
         shell: bash
@@ -73,8 +77,13 @@ jobs:
       - name: scripts/check_env.sh
         run: scripts/check_env.sh
 
-      - name: Demo and smoke, primary pair (dhc-a-java, dhc-b-spring)
+      # With an outage in the middle, as the README shows it: A is stopped alone and started
+      # again, and B has to find it again by itself for the second smoke check to pass.
+      - name: Demo and smoke, primary pair (dhc-a-java, dhc-b-spring), and A away and back
         run: |
+          scripts/demo.sh up primary
+          scripts/smoke.sh
+          scripts/demo.sh down dhc-a-java
           scripts/demo.sh up primary
           scripts/smoke.sh
           scripts/demo.sh down
@@ -98,7 +107,8 @@ jobs:
           scripts/smoke.sh
           scripts/demo.sh down
 
-      # Containers. A Windows runner has no Linux containers, so this part is Linux only.
+      # Containers. A Windows runner has no Linux containers and a macOS runner has no container
+      # runtime at all, so this part is Linux only.
       - name: Build the images
         if: runner.os == 'Linux'
         run: ./gradlew buildImages

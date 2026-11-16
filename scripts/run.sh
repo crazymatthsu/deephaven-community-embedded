@@ -48,6 +48,9 @@ export DHC_WORK_DIR="${DHC_WORK_DIR:-$root/build/run/$environment/$app/work}"
 mkdir -p "$DHC_WORK_DIR"
 
 if [ "$kind" = java ]; then
+    # From the repository root, wherever this script was called from: Deephaven names files after
+    # the paths of the application scripts as seen from the directory the JVM starts in (F17).
+    cd "$root"
     # The start script of the distribution adds the mandatory JVM flags itself.
     JAVA_OPTS="${JAVA_OPTS:-}${jvm:+ $jvm}"
     export JAVA_OPTS

@@ -119,4 +119,82 @@ class AppModulesTest {
         assertEquals(sourceDir.toAbsolutePath(), AppModules.prepare(settings, getClass().getClassLoader()));
         assertFalse(Files.exists(workDir.resolve("app.d")));
     }
+
+    @Test
+    void aDirectoryIsWrittenTheShorterWay() {
+        Path checkout = Path.of("/a/long/way/down/to/the/checkout").toAbsolutePath();
+
+        // Started from the checkout: the work directory below it is a few characters away.
+        assertEquals(Path.of("build", "work", "app.d"),
+                AppModules.shortest(checkout.resolve("build/work/app.d"), checkout));
+        // Started from a sibling directory: still shorter than the whole path.
+        assertEquals(Path.of("..", "..", "build", "work", "app.d"),
+                AppModules.shortest(checkout.resolve("build/work/app.d"), checkout.resolve("apps/extracted")));
+        // Somewhere else entirely: going up and down again is longer, so the path stays as it is.
+        Path elsewhere = Path.of("/var/dhc/work/app.d").toAbsolutePath();
+        assertEquals(elsewhere, AppModules.shortest(elsewhere, checkout));
+        // The directory itself.
+        assertEquals(Path.of("."), AppModules.shortest(checkout, checkout));
+    }
+
+    @Test
+    void scriptsAreListedInTheOrderDeephavenRunsThem(@TempDir Path directory) throws IOException {
+        Files.createDirectories(directory.resolve("b"));
+        Files.createDirectories(directory.resolve("a"));
+        Files.writeString(directory.resolve("b.app"),
+                "type=script\nscriptType=groovy\nenabled=true\nid=b\nname=B\nfile_0=b/10.groovy\nfile_1=b/20.groovy\n");
+        Files.writeString(directory.resolve("a.app"),
+                "type=script\nscriptType=groovy\nenabled=true\nid=a\nname=A\nfile_0=a/10.groovy\n");
+        Files.writeString(directory.resolve("off.app"),
+                "type=script\nscriptType=groovy\nenabled=false\nid=off\nname=Off\nfile_0=off/10.groovy\n");
+        Files.writeString(directory.resolve("other.app"), "type=static\nclass=x.Y\n");
+
+        assertEquals(
+                List.of(directory.resolve("a/10.groovy"), directory.resolve("b/10.groovy"),
+                        directory.resolve("b/20.groovy")),
+                AppModules.scripts(directory));
+    }
+
+    @Test
+    void aScriptPathDeephavenCannotCompileIsRefusedWithItsLength(@TempDir Path directory) throws IOException {
+        // Deep enough that the script's path passes the limit whatever the temporary directory is.
+        Path deep = directory;
+        while (deep.toString().length() <= AppModules.MAX_SCRIPT_PATH) {
+            deep = deep.resolve("a-directory-with-a-long-name");
+        }
+        Files.createDirectories(deep.resolve("demo"));
+        module(deep, APP, "demo = emptyTable(1)\n");
+        Path applicationDir = deep;
+
+        EmbeddedDeephavenException error =
+                assertThrows(EmbeddedDeephavenException.class, () -> AppModules.checkScriptPaths(applicationDir));
+
+        int length = deep.resolve("demo/10_demo.groovy").toString().length();
+        assertTrue(error.getMessage().contains("has a path of " + length + " characters, and 215 is the longest"),
+                error.getMessage());
+        assertTrue(error.getMessage().contains("File name too long"), error.getMessage());
+        assertTrue(error.getMessage().contains("DHC_WORK_DIR"), error.getMessage());
+    }
+
+    @Test
+    void theSameScriptsPassWhenTheDirectoryIsWrittenRelativeToWhereTheJvmStarted(@TempDir Path directory)
+            throws IOException {
+        Path deep = directory;
+        while (deep.toString().length() <= AppModules.MAX_SCRIPT_PATH) {
+            deep = deep.resolve("a-directory-with-a-long-name");
+        }
+        Path workingDirectory = deep;
+        Path applicationDir = Files.createDirectories(deep.resolve("build/work/app.d"));
+        module(applicationDir, APP, "demo = emptyTable(1)\n");
+
+        Path shortest = AppModules.shortest(applicationDir, workingDirectory);
+
+        assertEquals(Path.of("build", "work", "app.d"), shortest);
+        // The list is read through the absolute directory here, because this test's JVM was not
+        // started in that deep directory; what is checked is the path Deephaven would be given.
+        for (Path script : AppModules.scripts(applicationDir)) {
+            Path given = shortest.resolve(applicationDir.relativize(script));
+            assertTrue(given.toString().length() <= AppModules.MAX_SCRIPT_PATH, given.toString());
+        }
+    }
 }

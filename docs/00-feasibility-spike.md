@@ -124,12 +124,21 @@ so the path points outside the storage directory and the service fails with
 there: the build, the build-logic tests and the JVM-flag check.
 
 The framework works around the start: on Windows it sets Deephaven's `storage.path.defaults` to
-`layouts,notebooks`. **What that does not fix:** the web IDE sends the same `/layouts/...` paths
-when it loads and saves layouts and notebooks, and the same code rejects them. So on native
-Windows the tables and the API are expected to work, and saving layouts or notebooks in the IDE
-is expected to fail; whether the IDE still opens cleanly has not been seen. The full fix is a
-gRPC interceptor in our component that rewrites those paths, and it needs a Windows machine or
-a browser test in CI to verify. It is a P7 item unless Windows is where the demo will be shown.
+`layouts,notebooks`. That alone left the second half open: the web IDE sends the same
+`/layouts/...` paths when it loads and saves layouts and notebooks, and the same code rejects
+them.
+
+*Closed in phase P7.* Our component now puts an interceptor, `StoragePaths`, in front of the
+storage service. Where the file separator is not `/` it drops the leading slash from the paths
+of a request, and gives a listing back with forward slashes, because the service builds its
+answers from the platform's separator (`/layouts\main.json`) and the web IDE could not ask for
+such a path again. On Linux and macOS it does nothing, so Deephaven's own code runs there
+unchanged. `StorageServiceTest` asks a running instance the way the web IDE does, over the
+network and with its paths: list, create, save, fetch, move, delete, and a path that leaves the
+storage directory, which is still refused. It runs on all three systems, and on the Windows
+runner it is the test that fails without the interceptor. **Still not seen:** the web IDE itself
+on Windows, in a browser. The requests it sends are covered; that nothing else in it trips
+over Windows is not.
 
 **F12. A subscription by address cannot log in; a session of our own can.** Measured in phase
 P4. Deephaven resolves `dh+plain://host:port/scope/<table>` through `BarrageTableResolver`,
@@ -189,6 +198,27 @@ formulas with `javac` while it runs (the reason behind F6 as well), and a JRE ha
 The base image is therefore a JDK (`DHC_CONTAINER_BASE_IMAGE`), the same holds for a runtime
 image made with `jlink` unless it includes `jdk.compiler`, and the preflight check now says so
 before anything starts.
+
+**F17. The path of an application script is limited, because Deephaven makes a file name of
+it.** Found in phase P7, by following the README in a fresh clone that happened to sit in a
+deep directory. Instance A did not start: `java.lang.RuntimeException: java.io.IOException:
+File name too long`. Deephaven's Groovy session compiles each application script into a class
+named after the script's **whole path**, with every character that is not a letter or a digit
+turned into an underscore, and writes that class to a file of the same name plus a counter and
+`.class`. A file name holds 255 characters on Linux, macOS and Windows alike. The script was
+`<checkout>/build/demo/dev/dhc-a-java-work/app.d/dhc-a/10_tables.groovy`; with a checkout path
+of 210 characters that is 269. Every earlier run had a shorter checkout path, and CI's are
+short.
+
+Two things in the framework answer it. Deephaven takes the application directory as it is
+given, so the framework gives it **relative to the directory the JVM was started in** whenever
+that is shorter, which it is for an application started from its checkout or its installation:
+the same script is then `build/demo/dev/dhc-a-java-work/app.d/dhc-a/10_tables.groovy`, 59
+characters wherever the checkout is. And a script whose path is still longer than 215
+characters is refused before Deephaven starts, with its length and what to change; the 40
+characters kept back are for the counter, which grows each time the scripts run again after a
+reconnect, and for the names of closures in the script. `scripts/run.sh` now starts a plain
+Java host from the repository root, wherever it was called from.
 
 ## The embedding core, as it ran
 
@@ -260,7 +290,11 @@ Start-up settings used: `-Ddeephaven.console.type=groovy`, `-Dhttp.port=<port>`,
 - ~~Spring on the library versions pinned to Deephaven's~~: done in P5, see F9.
 - Subscribing to a blink table across instances, as opposed to an append-only one.
 - ~~Running inside a container~~: done in P6, finding F16.
-- Spring Boot 4.x, and a macOS runner in CI.
+- ~~A macOS runner in CI~~: done in P7.
+- Spring Boot 4.x (decision D2).
 - Proxying the Deephaven UI through the Spring port (single origin).
+- TLS between the instances: the `dh://` scheme is accepted, and nothing has run over it.
+- The web IDE on Windows, in a browser (F11).
 
-Each is assigned to a phase in [02](02-implementation-phases.md).
+The four that are open are the stretch items of [phase P7](02-implementation-phases.md#p7-hardening-and-documentation)
+and were left out of it; the blink-table subscription was never assigned to a phase.

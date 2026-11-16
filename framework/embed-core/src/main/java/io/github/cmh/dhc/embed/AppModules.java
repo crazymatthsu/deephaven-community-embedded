@@ -2,6 +2,7 @@ package io.github.cmh.dhc.embed;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -11,6 +12,8 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
+import java.util.stream.Stream;
 
 /**
  * Puts application-mode modules where Deephaven looks for them.
@@ -61,6 +64,88 @@ final class AppModules {
             throw new EmbeddedDeephavenException("Cannot write the application modules to " + target, e);
         }
         return target;
+    }
+
+    /**
+     * The longest path an application script may have, as Deephaven is given it (finding F17).
+     *
+     * <p>Deephaven names the class it compiles a script into after the script's whole path, every
+     * character that is not a letter or a digit turned into an underscore, and writes that class
+     * to a file of the same name. A file name holds 255 characters on every file system this runs
+     * on. The rest of the name needs room too: a counter that grows each time the scripts run
+     * again, the names of the closures in the script, and {@code .class}. 40 characters are kept
+     * for those.
+     */
+    static final int MAX_SCRIPT_PATH = 215;
+
+    /**
+     * The way to write a directory that gives Deephaven the shortest script paths: relative to
+     * the directory the JVM was started in when that is shorter, as it is when an application is
+     * started from its checkout or its installation. A deep directory then costs nothing.
+     *
+     * @param directory absolute
+     * @param workingDirectory the JVM's, absolute
+     */
+    static Path shortest(Path directory, Path workingDirectory) {
+        Path relative;
+        try {
+            relative = workingDirectory.relativize(directory);
+        } catch (IllegalArgumentException anotherDrive) {
+            return directory;
+        }
+        if (relative.toString().isEmpty()) {
+            relative = Path.of(".");
+        }
+        return relative.toString().length() < directory.toString().length() ? relative : directory;
+    }
+
+    /**
+     * The script files of the enabled script applications in a directory, in the order Deephaven
+     * runs them, each as Deephaven is given it: the directory with the file's name from the
+     * {@code .app} file.
+     */
+    static List<Path> scripts(Path applicationDir) {
+        List<Path> applications;
+        try (Stream<Path> files = Files.list(applicationDir)) {
+            applications = files.filter(file -> file.getFileName().toString().endsWith(".app")).sorted().toList();
+        } catch (IOException e) {
+            throw new EmbeddedDeephavenException("Cannot list the application modules in " + applicationDir, e);
+        }
+        List<Path> scripts = new ArrayList<>();
+        for (Path application : applications) {
+            Properties properties = new Properties();
+            try (Reader reader = Files.newBufferedReader(application)) {
+                properties.load(reader);
+            } catch (IOException e) {
+                throw new EmbeddedDeephavenException("Cannot read " + application, e);
+            }
+            if (!"script".equals(properties.getProperty("type")) || "false".equals(properties.getProperty("enabled"))) {
+                continue;
+            }
+            for (int i = 0; properties.getProperty("file_" + i) != null; i++) {
+                scripts.add(applicationDir.resolve(properties.getProperty("file_" + i).trim()));
+            }
+        }
+        return scripts;
+    }
+
+    /**
+     * Refuses a directory whose scripts have paths too long for Deephaven to compile them
+     * (finding F17), before Deephaven fails on the first of them with "File name too long".
+     */
+    static void checkScriptPaths(Path applicationDir) {
+        for (Path script : scripts(applicationDir)) {
+            int length = script.toString().length();
+            if (length > MAX_SCRIPT_PATH) {
+                throw new EmbeddedDeephavenException("The application script " + script + " has a path of " + length
+                        + " characters, and " + MAX_SCRIPT_PATH + " is the longest Deephaven can run. Deephaven names"
+                        + " the class file of a script after the script's whole path, and a file name holds 255"
+                        + " characters; without this check the start would fail with 'File name too long'. Point "
+                        + EmbedSettings.WORK_DIR + " at a directory with a shorter path, or start the application"
+                        + " from a directory nearer to it: a path is taken relative to the directory the JVM was"
+                        + " started in (" + Path.of("").toAbsolutePath() + ") when that is shorter.");
+            }
+        }
     }
 
     private static void materialise(String module, ClassLoader classLoader, Path target) throws IOException {

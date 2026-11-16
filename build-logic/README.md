@@ -10,9 +10,12 @@ else is decided here, once. Findings "F*n*" are in
 | `dhc.java-conventions` | every Java module | Java 21 toolchain, UTF-8, warnings as errors, JUnit 5, reproducible archives. |
 | `dhc.deephaven-library` | `framework/*`, role modules | Deephaven BOM enforced (F9), Kafka extension excluded (F2), Dagger and its processor (F1), JVM flags on tests (F3), a JVM per test class (F10), javac's `classfile` lint off. |
 | `dhc.groovy-app-module` | `apps/*-module` | Everything of `dhc.deephaven-library`, plus the Groovy part in `src/main/appmode/` (`<id>.app` and its scripts under `<id>/`): `validateAppModule` checks it on the module's own classpath, `generateAppModuleIndex` lists its files, and both go into the jar under `META-INF/dhc/app.d/`. A module that does not validate is not packaged. |
-| `dhc.embedded-java-app` | plain Java hosts | `application` plugin, the dependency rules, JVM flags on `run`, tests and start scripts (F3), Logback as the SLF4J backend, `verifyDeephavenAlignment`. The start scripts name one jar, whose manifest lists the others, because Windows cannot hold the full list on a command line. `run` gets the development settings (`DHC_AUTH_MODE=anonymous`, a work directory under `build/`) unless the environment sets them; the installed distribution gets neither. |
-| `dhc.embedded-spring-app` | Spring hosts | Spring Boot plugin without `io.spring.dependency-management`, Spring's BOM as a plain platform, Deephaven's versions pinned (F9), Tomcat WebSocket excluded (F8), JVM flags on `bootRun` and tests (F3), `verifyDeephavenAlignment`. `extractBootJar` comes in P5. |
+| `dhc.embedded-java-app` | plain Java hosts | `application` plugin, the dependency rules, JVM flags on `run`, tests and start scripts (F3), Logback as the SLF4J backend, `verifyDeephavenAlignment`. The start scripts name one jar, whose manifest lists the others, because Windows cannot hold the full list on a command line. `run` takes its settings from the repository's `config/` with the environment `dev`, and a work directory under `build/`, unless the environment says otherwise; the installed distribution gets neither. |
+| `dhc.embedded-spring-app` | Spring hosts | Spring Boot plugin without `io.spring.dependency-management`, Spring's BOM as a plain platform, Deephaven's versions pinned (F9), Tomcat WebSocket excluded (F8), JVM flags on `bootRun` and tests (F3), `verifyDeephavenAlignment`. `extractBootJar` unpacks the fat jar into the layout an application is run from (F6, F7), with the JVM flags in `jvm.args`. `bootRun` gets the same development settings as `run`. |
 | `dhc.verify-alignment` | every app (applied by the two app plugins) | `verifyDeephavenAlignment`, part of `check`. |
+| `dhc.config` | `config/` | `validateConfig`, part of `check`: the settings files keep their format, hold no secret and no unknown key, and every environment has the same keys. `configArchive` packages them. |
+| `dhc.scripts` | `scripts/` | `checkScripts`, part of `check`: nothing in `scripts/*.sh` and `docker/*.sh` that macOS bash 3.2 or the BSD tools refuse, no Windows line endings, `set -eu` in every script that is run. It reads the scripts as text and runs nothing. A line that is meant ends with `# checkScripts: allow`. |
+| `dhc.docs` | `docs/` | `checkDocs`, part of `check`: every link between the Markdown documents of the repository leads to a file and a heading that exist. Links to other sites are not followed. |
 
 ## Two builds
 
@@ -49,8 +52,10 @@ Deephaven alone resolves. `dependencyInsight` shows the pin as
 
 ## Tests
 
-`src/test/fixtures/` holds four small Gradle builds. One of them, `repo-login`, has its own
-`config/repos/repos.env` for a mirror that needs a login and resolves nothing. `ConventionPluginsTest` runs them with
+`src/test/fixtures/` holds seven small Gradle builds, one for each set of rules. One of them,
+`repo-login`, has its own `config/repos/repos.env` for a mirror that needs a login and resolves
+nothing; `config-check`, `scripts-check` and `docs-check` are correct as they are, and the tests
+break them one way at a time. `ConventionPluginsTest` runs them with
 Gradle TestKit and checks that each rule holds and that breaking one fails with a message that
 says why. They run as part of `./gradlew check` at the root. To run one by hand:
 

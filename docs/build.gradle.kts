@@ -1,5 +1,6 @@
-// The documents in this directory. Link checks arrive in phase P7.
+// The documents in this directory, and the README files of the repository.
+// checkDocs (part of check) comes from the plugin: no link between them may go nowhere.
 
 plugins {
-    base
+    id("dhc.docs")
 }
