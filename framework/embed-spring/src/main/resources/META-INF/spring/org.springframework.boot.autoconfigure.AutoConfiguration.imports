@@ -1,0 +1,3 @@
+io.github.cmh.dhc.embed.spring.EmbeddedDeephavenAutoConfiguration
+io.github.cmh.dhc.embed.spring.EmbeddedDeephavenHealthAutoConfiguration
+io.github.cmh.dhc.embed.spring.EmbeddedDeephavenWebAutoConfiguration

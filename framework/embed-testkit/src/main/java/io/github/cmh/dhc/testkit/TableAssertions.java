@@ -5,7 +5,6 @@ import io.deephaven.engine.table.Table;
 import io.github.cmh.dhc.embed.EmbeddedDeephaven;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Assertions;
@@ -45,22 +44,7 @@ public final class TableAssertions {
 
     /** Every row, top to bottom, as column name to value, all read at one moment. */
     public static List<Map<String, Object>> rows(EmbeddedDeephaven deephaven, Table table) {
-        return deephaven.engine().call(() -> {
-            List<String> names = table.getDefinition().getColumnNames();
-            List<Map<String, Object>> rows = new ArrayList<>();
-            for (String name : names) {
-                int row = 0;
-                try (CloseableIterator<Object> iterator = table.columnIterator(name)) {
-                    while (iterator.hasNext()) {
-                        if (rows.size() <= row) {
-                            rows.add(new LinkedHashMap<>());
-                        }
-                        rows.get(row++).put(name, iterator.next());
-                    }
-                }
-            }
-            return rows;
-        });
+        return deephaven.engine().rows(table);
     }
 
     /**

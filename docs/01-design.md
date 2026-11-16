@@ -209,8 +209,9 @@ Responsibilities:
   subscribe anew and rebuild what they derive. Three consequences, each checked by a test:
   a script that uses `host.remote` has to be a list of definitions that can run more than once;
   a table has to be looked up by name each time (`table(name)`), because after a reconnect the
-  name refers to a new table, and a table object from before the outage, a panel open in the
-  web IDE included, keeps its last rows and has to be reopened; and the upstream's history is
+  name refers to a new table, and a table object from before the outage keeps its last rows
+  and is not updated again (a panel or widget open in a browser shows an error over them and has
+  to be reopened); and the upstream's history is
   its own business, so if it came back empty the new tables start empty. The status table is the
   instance's own and keeps working throughout.
 - **Preflight checks with actionable messages**: missing JVM flags (F3), running from a nested
@@ -224,7 +225,19 @@ Responsibilities:
   the application modules have run. `stop()` runs Deephaven's shutdown tasks and ends its thread
   pools. Afterwards three idle daemon threads remain that nothing can end (Deephaven's reference
   cleaner, JNA's cleaner, the JDK's process reaper); none keeps the JVM alive. One instance per
-  JVM, and no restart (F10).
+  JVM, and no restart (F10). The update graph is stopped while holding its exclusive lock,
+  because Deephaven's own `stop()` can wait for ever (F14). With no client connected a stop
+  takes about a second. With browsers connected Deephaven waits for them, up to its shutdown
+  timeout (10 seconds, `-Dshutdown.timeoutMs`), and then logs a `TimeoutException` from
+  `JettyBackedGrpcServer.stopWithTimeout`, which is harmless.
+- **Engine access and other locks**: `engine().call` and `engine().run` hold the update graph's
+  shared lock, so the code inside does table work only. A host thread that waited for another
+  lock in there once stopped the whole instance from reconnecting (P5): the reconnecting thread
+  held that lock and was waiting for the update graph's. Two things follow in the framework.
+  The getters a host asks all the time (`isRunning()`, and `state()`, `since()`,
+  `reconnects()`, `lastError()` of an upstream) take no lock at all, and a subscription waits
+  for its first snapshot without holding the upstream's lock. A test keeps two clients asking
+  for the summary and for health while A is killed and restarted.
 
 Settings in P2 (`EmbedSettings`): `DHC_HTTP_HOST` (`localhost`), `DHC_HTTP_PORT` (10000; 0 picks
 a free port), `DHC_AUTH_MODE` (`psk`; `anonymous` for development), `DHC_AUTH_PSK` (Deephaven
@@ -239,11 +252,36 @@ and comes from the environment only.
 
 ### 4.2 `embed-spring`
 
-A Spring Boot starter around `embed-core`: an auto-configured `EmbeddedDeephaven` bean driven by
-a `SmartLifecycle` (starts after the application's own beans, stops before them), settings bound
-from the same keys, a health indicator (`deephaven`, plus one per upstream), every bean
-implementing `HostBinding` registered automatically, and an optional `/dhc/tables` endpoint
-listing published tables. Spring's logging configuration stays in charge.
+A Spring Boot starter around `embed-core`. A host that has it on its classpath gets:
+
+- **An `EmbeddedDeephaven` bean**, started and stopped by a `SmartLifecycle`. It starts when
+  every bean exists and before Spring Boot's web server, so the first HTTP request finds
+  Deephaven up; it stops after the web server has finished its requests. (The plan said "starts
+  after the application's own beans, stops before them"; a REST endpoint that reads tables
+  needs it the other way round at the web server.)
+- **Settings from Spring's `Environment`**, under the same keys: `dhc.http.port` in
+  `application.properties` is the application's default, `DHC_HTTP_PORT` in the environment
+  overrides it, `-Ddhc.http.port` overrides both. That is Spring's own order and the order a
+  plain Java host applies. The application id is `dhc.app.id`. A secret such as
+  `DHC_UPSTREAM_DHC_A_PSK` belongs in the environment, not in the properties file.
+- **`SideEffectPolicy.hostKeepsControl()`**: Spring keeps the standard streams, its handling of
+  uncaught exceptions and its shutdown hook. Spring's logging configuration stays in charge.
+- **Host bindings**: every bean implementing `HostBinding` is `host.<name>` in the scripts.
+  What settings cannot say, a role's upstream for example, is an `EmbeddedDeephavenCustomizer`
+  bean.
+- **Health**, when the host has the actuator: `deephaven`, and one indicator per upstream under
+  the upstream's id (`dhc-a`), up while its tables are subscribed. An upstream that is away
+  turns the overall status `DOWN` (HTTP 503) while the application keeps running, so a
+  liveness probe should not be the overall status; readiness may be.
+- **A start that fails says why**: an `EmbeddedDeephavenException` becomes Spring Boot's
+  "APPLICATION FAILED TO START" report with the framework's message as the description. This
+  is how a fat jar is refused (F6).
+- **`GET /dhc/tables`**, off unless `dhc.tables.endpoint=true`: the published tables with size
+  and columns.
+
+A Spring test context starts Deephaven like any other, so one context per test JVM (F10): no
+`@DirtiesContext`, and test classes with different configurations each get their own JVM, which
+the build gives them.
 
 ### 4.3 `orders-model`
 
@@ -324,11 +362,25 @@ is the framework's `RemoteTables`. This script is run again after every reconnec
 it is definitions only. `dhc-b-java` is its plain Java host, on port 10001, and waits for A at
 start.
 
-The Spring host for B adds what a business application would: `GET /api/orders/{id}` and
-`GET /api/summary` reading table snapshots through `engine()`, the health indicators, and a page
-at `/` that embeds the `orders_a` and `cum_by_symbol` tables with Deephaven's iframe widgets.
+The Spring host for B, `dhc-b-spring`, adds what a business application would:
+
+- `GET /api/orders/{id}`: one order's latest state from `orders_a`, 404 when there is none. The
+  id is given to the engine as a filter value, never as part of a formula. While A is away the
+  answer is 503 with the reason: nothing can be derived from a failed table (F13).
+- `GET /api/summary`: totals from role B's tables and what is known about the connection to A.
+  While A is away it still answers, with the last numbers and `stale: true`.
+- The health indicators `deephaven` and `dhc-a`.
+- A page at `/` that embeds the `orders_a` and `cum_by_symbol` tables with Deephaven's iframe
+  widgets (`http://<host>:10001/iframe/widget/?name=orders_a`), shows the numbers of the
+  summary, and opens the widgets again after a reconnect. If Deephaven asks for a key the page
+  is opened as `/?psk=<key>` and passes it on; the application does not hand the key out.
+  Without it each widget shows Deephaven's own login form, and the browser remembers a login.
+  The numbers and the REST API are the application's own and are not behind Deephaven's key;
+  protecting them is the application's business, as for any Spring MVC endpoint.
+
 That page is the "internal UI module" picture: the application's own page, Deephaven's grid
-inside it.
+inside it. Whoever can open a widget has a Deephaven session, so the page is as public as
+Deephaven's port is.
 
 ### Ports
 
@@ -403,7 +455,7 @@ localhost unless `DHC_HTTP_HOST` says otherwise.
 | Host | Development | Distribution | Container |
 |---|---|---|---|
 | Plain Java | `./gradlew :apps:dhc-a-java:run` | `installDist`: start script + `lib/`, flags baked into the script. The script names one jar, the application's, whose manifest lists the others: close to three hundred jars listed one by one are more than a Windows command line holds | `docker/Dockerfile.java-app` copies the distribution |
-| Spring Boot | `./gradlew :apps:dhc-b-spring:bootRun` | `bootJar` then `extractBootJar`: thin jar + `lib/` (F7). The fat jar is never the run artifact (F6), and the app refuses to start from one with a message saying why | `docker/Dockerfile.spring-app` copies the extracted layout |
+| Spring Boot | `./gradlew :apps:dhc-b-spring:bootRun` | `extractBootJar` (part of `assemble`) unpacks the fat jar into `build/extracted`: `<app>.jar`, a thin jar whose manifest lists the libraries, `lib/`, and `jvm.args` with the mandatory JVM flags (F7). Started with `java @jvm.args -jar <app>.jar`. The fat jar is never the run artifact (F6), and the app refuses to start from one with a message saying why | `docker/Dockerfile.spring-app` copies the extracted layout |
 
 `scripts/demo.sh up|down|status|logs` starts A then B locally, `scripts/run.sh <app> [env]`
 starts one, and `scripts/smoke.sh` waits for health and compares B's totals with A's through the
@@ -420,8 +472,8 @@ and declare a health check. The compose file works with Podman and Docker.
 | T1 unit | settings precedence, generator determinism, oracle, config validation | plain JUnit, no engine |
 | T2 engine | role A's tables equal the oracle for a fixed seed and event count; engine access helper; publisher batching | one embedded instance per test JVM (F10) |
 | T3 two-process | A started as a child process from its installed distribution, B subscribes in the test's JVM; B's tables equal the oracle; with a key, a wrong key, no key; A killed and restarted, stopped and restarted; the probe | `integrationTest` task of `dhc-b-module` |
-| T4 Spring | context starts with embedded Deephaven, REST and health answer, shutdown is clean | `@SpringBootTest` |
-| T5 packaging | the installed distribution and the extracted Spring layout both start and pass the smoke script; the fat jar is refused with the expected message | CI job |
+| T4 Spring | context starts with embedded Deephaven, REST and health answer, closing the context leaves no threads; with A as a child process the REST answers equal the oracle, and A killed and restarted under two clients that keep asking | `@SpringBootTest`, in `embed-spring` and in the `integrationTest` task of `dhc-b-spring` |
+| T5 packaging | the extracted Spring layout starts as a process with `java @jvm.args -jar` and passes the same HTTP checks as T4, then stops when asked; the fat jar is refused with the expected message. The installed distribution of a plain Java host is started by `scripts/check-start.sh` | `integrationTest` task of `dhc-b-spring`; CI |
 
 The deterministic generator with an event limit is what makes T2 to T4 exact rather than
 "eventually something arrives".
@@ -439,6 +491,8 @@ P7.
 | Spring's BOM raises libraries above the versions Deephaven was built with | F9 correction: thirteen libraries with Spring Boot 3.5.16 | the Spring convention plugin pins them to Deephaven's; T4 and T5 are the first run of Spring on the pinned set |
 | WebSocket or servlet clashes return when a host adds libraries | F8 | exclusion in the Spring convention plugin; T5 runs the real packaging |
 | Someone ships the fat jar | F6 | start-up guard with a clear message; T5 negative test |
+| The host does not stop when asked | F14: Deephaven's `stop()` of the update graph can wait for ever | the framework stops it under the exclusive lock; a test stops an instance in mid-cycle, and T5 asks the packaged application to stop |
+| Host code and the framework wait for each other's locks | found in P5 during a reconnect | getters without locks, no wait under the upstream's lock; T4 keeps clients asking through an outage; every test task has a time limit |
 | Deephaven's process-wide handlers surprise the host | F5 | explicit side-effect policy per host, tested in T4 |
 | B does not recover when A restarts | F13: measured, it does not | `RemoteTables` reconnects and has the scripts run again; T3 kills and restarts A and holds B to the documented behaviour |
 | Authenticated subscription differs from the anonymous path | F12: it does; subscribing by address cannot log in | `RemoteTables` always makes its own session; T3 runs with a key, a wrong key and no key |

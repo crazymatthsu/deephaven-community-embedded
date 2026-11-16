@@ -1,3 +1,5 @@
+import java.util.jar.JarFile
+
 plugins {
     id("dhc.embedded-spring-app")
     id("io.spring.dependency-management") version "1.1.7" apply false
@@ -26,5 +28,29 @@ tasks.register("printJvmFlags") {
     doLast {
         println("flags of bootRun: ${bootRun.get()}")
         println("flags of test: ${test.get()}")
+    }
+}
+
+// What extractBootJar leaves in build/extracted (F7).
+tasks.register("printExtracted") {
+    val extracted = layout.buildDirectory.dir("extracted")
+    dependsOn("extractBootJar")
+    doLast {
+        val directory = extracted.get().asFile
+        println("extracted: " + directory.list()!!.sorted())
+        val (classPath, mainClass, nested) = JarFile(directory.resolve("app.jar")).use { jar ->
+            Triple(
+                jar.manifest.mainAttributes.getValue("Class-Path").split(" "),
+                jar.manifest.mainAttributes.getValue("Main-Class"),
+                jar.entries().asSequence().count { it.name.endsWith(".jar") },
+            )
+        }
+        val libraries = directory.resolve("lib").list()!!.toSet()
+        println("main class: $mainClass")
+        println("jars inside the thin jar: $nested")
+        println("manifest entries: " + classPath.size)
+        println("manifest entries missing from lib: " + classPath.count { it.removePrefix("lib/") !in libraries })
+        println("lib has the server: " + libraries.any { it.startsWith("deephaven-server-jetty-") })
+        println("jvm.args: " + directory.resolve("jvm.args").readLines())
     }
 }

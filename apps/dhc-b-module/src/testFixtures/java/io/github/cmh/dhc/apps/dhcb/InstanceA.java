@@ -21,24 +21,27 @@ import java.util.Optional;
 
 /**
  * Instance A for the two-process tests: the installed {@code dhc-a-java}, run as a process of its
- * own with a fixed seed and an event limit, and what its tables must then contain.
+ * own with a fixed seed and an event limit, and what its tables must then contain. Shared, as
+ * test fixtures of this module, by every test that puts a role B beside a real A.
+ *
+ * <p>The build passes the distribution's directory as the system property {@code dhc.a.install}.
  */
-final class InstanceA {
+public final class InstanceA {
 
-    static final int EVENTS = 600;
-    static final Duration PATIENCE = Duration.ofSeconds(90);
+    public static final int EVENTS = 600;
+    public static final Duration PATIENCE = Duration.ofSeconds(90);
 
     /** Made up for the tests; A is told it and B has to present it. */
-    static final String KEY = "integration-test-key-not-a-secret";
+    public static final String KEY = "integration-test-key-not-a-secret";
 
     private static final Path INSTALL = Path.of(System.getProperty("dhc.a.install"));
     private static final String MAIN = "io.github.cmh.dhc.apps.dhca.java.DhcAJavaApp";
     private static final Instant START = Instant.parse("2026-01-05T14:30:00Z");
     private static final GeneratorConfig CONFIG = GeneratorConfig.of(42, 12, START, 2_000.0);
 
-    static final ExecOracle ORACLE = ExecOracle.after(CONFIG, EVENTS);
+    public static final ExecOracle ORACLE = ExecOracle.after(CONFIG, EVENTS);
 
-    final int port = ChildApp.freePort();
+    public final int port = ChildApp.freePort();
     private final boolean withKey;
     private ChildApp process;
 
@@ -47,17 +50,17 @@ final class InstanceA {
     }
 
     /** A, started and answering, with anonymous access. */
-    static InstanceA anonymous() {
+    public static InstanceA anonymous() {
         return new InstanceA(false).start();
     }
 
     /** A, started and answering, asking for {@link #KEY}. */
-    static InstanceA withKey() {
+    public static InstanceA withKey() {
         return new InstanceA(true).start();
     }
 
     /** Starts A, again after a stop or kill, on the same port and with the same feed. */
-    InstanceA start() {
+    public InstanceA start() {
         try {
             ChildApp.Builder builder = ChildApp.distribution(INSTALL, MAIN)
                     .env("DHC_HTTP_PORT", String.valueOf(port))
@@ -80,38 +83,38 @@ final class InstanceA {
         }
     }
 
-    String url() {
+    public String url() {
         return "dh+plain://localhost:" + port;
     }
 
     /** How B is told about this A. */
-    UpstreamSettings upstream(Optional<String> key) {
+    public UpstreamSettings upstream(Optional<String> key) {
         return new UpstreamSettings(RoleB.UPSTREAM, url(), key, Duration.ofSeconds(60));
     }
 
     /** As a crash would end it. */
-    void kill() {
+    public void kill() {
         process.kill();
     }
 
     /** As Ctrl-C would end it. */
-    void stop() {
+    public void stop() {
         process.stop();
     }
 
-    void close() {
+    public void close() {
         if (process != null) {
             process.close();
         }
     }
 
     /** A's {@code orders} once the limit is reached: the latest execution of every order. */
-    static List<Map<String, Object>> expectedOrders() {
+    public static List<Map<String, Object>> expectedOrders() {
         return ORACLE.lastExecByOrder().values().stream().map(ExecTables::row).toList();
     }
 
     /** A's {@code execs} once the limit is reached: every execution, in order. */
-    static List<Map<String, Object>> expectedExecs() {
+    public static List<Map<String, Object>> expectedExecs() {
         MockExecGenerator generator = new MockExecGenerator(CONFIG);
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int i = 0; i < EVENTS; i++) {
@@ -121,7 +124,7 @@ final class InstanceA {
     }
 
     /** B's {@code cum_by_symbol}: the filled quantity per symbol, symbols in the order they first appear. */
-    static List<Map<String, Object>> expectedCumBySymbol() {
+    public static List<Map<String, Object>> expectedCumBySymbol() {
         Map<String, Long> totals = new LinkedHashMap<>();
         for (ExecEvent last : ORACLE.lastExecByOrder().values()) {
             totals.merge(last.symbol(), last.cumQty(), Long::sum);

@@ -1,17 +1,29 @@
 package io.github.cmh.dhc.apps.dhcb.spring;
 
-/**
- * Host: Spring Boot running role B.
- *
- * <p>Placeholder. Phase P1 only establishes the module, its dependencies and its JVM flags; the
- * host arrives in phase P5.
- */
-public final class DhcBSpringApp {
+import io.github.cmh.dhc.apps.dhcb.RoleB;
+import io.github.cmh.dhc.embed.spring.EmbeddedDeephavenCustomizer;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
 
-    private DhcBSpringApp() {}
+/**
+ * Host: a Spring Boot application with Deephaven inside its JVM, running role B. Two ports:
+ * Spring MVC on 8081 (REST, health, the page) and Deephaven's own server on 10001 (web IDE, API).
+ * Instance A has to be reachable; this application waits for it at start.
+ *
+ * <p>The embedded Deephaven itself comes from {@code embed-spring}; {@code application.properties}
+ * says which module it runs and where A is.
+ */
+@SpringBootApplication
+public class DhcBSpringApp {
 
     public static void main(String[] args) {
-        throw new UnsupportedOperationException(
-                "dhc-b-spring is a build-skeleton placeholder (phase P1). The host arrives in phase P5.");
+        SpringApplication.run(DhcBSpringApp.class, args);
+    }
+
+    /** Role B's one addition to the instance: where A is. */
+    @Bean
+    EmbeddedDeephavenCustomizer roleB() {
+        return RoleB::bind;
     }
 }

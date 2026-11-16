@@ -1,5 +1,6 @@
 package io.github.cmh.dhc.buildlogic
 
+import java.time.Duration
 import java.util.TreeMap
 import org.gradle.api.GradleException
 import org.gradle.api.Project
@@ -109,6 +110,9 @@ object DeephavenRules {
                 // F10: one Deephaven per JVM, and it cannot be restarted. Each test class that
                 // starts one therefore gets a JVM of its own.
                 forkEvery = 1
+                // A test of threads and locks that goes wrong tends to wait for ever, not to fail.
+                // The build then says which task ran out of time instead of saying nothing.
+                timeout.set(Duration.ofMinutes(20))
             }
             tasks.withType<JavaCompile>().configureEach {
                 // Deephaven's classes carry annotations from org.immutables, which it does not

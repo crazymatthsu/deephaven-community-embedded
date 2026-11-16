@@ -105,7 +105,9 @@ Deephaven alone resolves: Jackson (`jackson-core`, `jackson-databind`, `jackson-
 `jcl-over-slf4j` (1.7.30 to 2.0.18). So S5 ran Spring and Deephaven together on those newer
 versions, and it worked. The build now goes the other way: a Spring host pins every library that
 Deephaven brings to the version Deephaven alone resolves ([design section 3](01-design.md)).
-Spring on those pinned versions has not been run yet; phase P5 is where it first is.
+Spring on those pinned versions first ran in phase P5: the application context, Spring MVC on
+Tomcat, Jackson and the actuator all work, in the test's JVM and from the extracted layout. No
+library needed Spring's version back.
 
 **F10. One Deephaven per JVM, and shared directories by default.** Configuration and the update
 graph are process-wide singletons, so two instances mean two JVMs. Each instance also defaults to
@@ -149,6 +151,36 @@ So B does **not** recover on its own. What the framework does about it is in
 [design section 4.1](01-design.md): it notices the failure, shows it in a status table, keeps
 trying to reach the upstream, and then runs the application scripts again so that they subscribe
 anew and rebuild what they derive.
+
+Seen in a browser in phase P5: a table panel or an embedded table widget that was open when the
+upstream went away does not simply freeze. It shows "Unable to open table" over its last rows,
+and has to be opened again once the tables have been rebuilt.
+
+**F14. Deephaven's own way of stopping its update graph can wait for ever.** Found in phase P5,
+when a Spring host asked to stop did not. `PeriodicUpdateGraph.stop()` first ends the threads
+that process a cycle's notifications and then waits for the cycle in flight to finish. A cycle
+that is still waiting for those threads never finishes, so `stop()` never returns, and neither
+does whoever called it: a Spring context being closed, a JVM handling Ctrl-C. The thread dump
+showed the refresh thread holding the update graph's exclusive lock inside
+`ConcurrentNotificationProcessor.doWork`, no notification threads left, and the shutdown hook
+waiting for that lock. An instance with ticking tables has such work in most cycles, so this is
+a matter of timing, not of a rare state: of the first three stops of the Spring host, one hung. A standalone Deephaven
+never calls `stop()`, it exits the JVM, which is why the race is not seen there. The framework
+now stops the graph while holding the exclusive lock, when no cycle is in flight
+(`UpdateGraphStop`), and a test stops an instance in the middle of a deliberately slow cycle.
+With Deephaven's `stop()` called directly that test does not finish.
+
+**F15. Spring MVC serves Deephaven's web files too, from its own port.** Deephaven ships its web
+UI as about five hundred files under `META-INF/resources` in `deephaven-web-42.4.jar`. That is
+where a servlet container looks for static content in jars, so Spring Boot's Tomcat answers
+`http://localhost:8081/ide/index.html` and `/jsapi/dh-core.js` with Deephaven's files. Nothing
+is behind them there: the API is on Deephaven's port, and an IDE opened from the application's
+port cannot connect. `/ide/` itself answers 404, so nobody arrives there by following a link.
+The files are public and static, and the application's own static files take precedence. This is
+left as it is and written down: removing it means replacing Spring Boot's static resource
+handling, and the property that looks like the cure (`spring.web.resources.static-locations`)
+is not one, because Tomcat adds the jars' resources by a second route. A host with no static
+content of its own could set `spring.web.resources.add-mappings=false`; that was not tried here.
 
 ## The embedding core, as it ran
 
@@ -217,6 +249,7 @@ Start-up settings used: `-Ddeephaven.console.type=groovy`, `-Dhttp.port=<port>`,
 
 - ~~An authenticated subscription from B to A~~: done in P4, finding F12.
 - ~~What B's tables do when A restarts~~: done in P4, finding F13.
+- ~~Spring on the library versions pinned to Deephaven's~~: done in P5, see F9.
 - Subscribing to a blink table across instances, as opposed to an append-only one.
 - Spring Boot 4.x, macOS and Windows, and running inside a container.
 - Proxying the Deephaven UI through the Spring port (single origin).

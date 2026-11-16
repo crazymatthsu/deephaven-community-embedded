@@ -132,6 +132,22 @@ class ConventionPluginsTest {
     }
 
     @Test
+    fun `extractBootJar leaves a thin jar that lists its libraries, the libraries and the JVM flags`() {
+        val result = fixture("spring-host", ":app:printExtracted").build()
+
+        // F7: no jar within a jar, so javac can read every class when Deephaven compiles a formula.
+        assertContains(result, "extracted: [app.jar, jvm.args, lib]")
+        assertContains(result, "main class: fixture.Main")
+        assertContains(result, "jars inside the thin jar: 0")
+        assertContains(result, "manifest entries missing from lib: 0")
+        assertContains(result, "lib has the server: true")
+        val entries = Regex("manifest entries: (\\d+)").find(result.output)!!.groupValues[1].toInt()
+        assertTrue(entries > 100, "the thin jar lists only $entries libraries")
+        // F3: one flag per line, the form `java @jvm.args` reads.
+        assertContains(result, "jvm.args: $mandatoryJvmFlags")
+    }
+
+    @Test
     fun `a Spring host that applies io_spring_dependency-management fails the build`() {
         val result = fixture("spring-host", "help", "-PapplyDependencyManagement").buildAndFail()
 
