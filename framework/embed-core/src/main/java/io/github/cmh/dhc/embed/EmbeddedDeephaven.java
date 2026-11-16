@@ -1,5 +1,9 @@
 package io.github.cmh.dhc.embed;
 
+import io.deephaven.client.impl.BarrageSession;
+import io.deephaven.client.impl.BarrageSessionFactoryConfig;
+import io.deephaven.client.impl.ClientConfig;
+import io.deephaven.client.impl.SessionConfig;
 import io.deephaven.configuration.Configuration;
 import io.deephaven.engine.context.ExecutionContext;
 import io.deephaven.engine.table.Table;
@@ -9,17 +13,25 @@ import io.deephaven.engine.util.ScriptSession;
 import io.deephaven.server.runner.DeephavenApiServer;
 import io.deephaven.server.runner.MainHelper;
 import io.deephaven.server.util.Scheduler;
+import io.deephaven.uri.DeephavenTarget;
 import io.deephaven.util.process.ProcessEnvironment;
 import java.io.File;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.io.Reader;
+import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,6 +60,8 @@ public final class EmbeddedDeephaven implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(EmbeddedDeephaven.class);
 
+    private static final String PSK_HANDLER = "io.deephaven.authentication.psk.PskAuthenticationHandler";
+
     /** Set by the first start in this JVM and never cleared (F10). */
     private static final AtomicBoolean STARTED_IN_THIS_JVM = new AtomicBoolean();
 
@@ -55,6 +69,8 @@ public final class EmbeddedDeephaven implements AutoCloseable {
     private final SideEffectPolicy sideEffects;
     private final HostBindings hostBindings;
     private final Class<?> hostClass;
+    private final Map<String, UpstreamSettings> upstreams;
+    private final Map<String, RemoteTables> remotes = new LinkedHashMap<>();
 
     private State state = State.NEW;
     private volatile DeephavenApiServer server;
@@ -63,12 +79,14 @@ public final class EmbeddedDeephaven implements AutoCloseable {
     private volatile Scheduler scheduler;
     private volatile Engine engine;
     private volatile int httpPort = -1;
+    private volatile Path applicationDir;
     private final AtomicReference<Throwable> fatalError = new AtomicReference<>();
 
     private EmbeddedDeephaven(Builder builder) {
         this.settings = Objects.requireNonNull(builder.settings, "settings");
         this.sideEffects = builder.sideEffects;
         this.hostClass = builder.hostClass;
+        this.upstreams = new LinkedHashMap<>(builder.upstreams);
         Map<String, Object> bindings = new LinkedHashMap<>(builder.bindings);
         bindings.putIfAbsent("appId", settings.appId());
         this.hostBindings = new HostBindings(bindings);
@@ -96,7 +114,7 @@ public final class EmbeddedDeephaven implements AutoCloseable {
                     + " instance needs a JVM of its own.");
         }
         state = State.STARTING;
-        Path applicationDir = AppModules.prepare(settings, classLoader());
+        applicationDir = AppModules.prepare(settings, classLoader());
         applyToDeephavenConfiguration(applicationDir);
 
         // Deephaven leaves an execution context open on the thread that starts it. On a thread of
@@ -126,6 +144,7 @@ public final class EmbeddedDeephaven implements AutoCloseable {
             throw new EmbeddedDeephavenException("Deephaven did not start: " + cause, cause);
         }
         state = State.RUNNING;
+        remotes.values().forEach(RemoteTables::startWatching);
         log.info("Embedded Deephaven '{}' is up: {}", settings.appId(), url());
     }
 
@@ -156,7 +175,7 @@ public final class EmbeddedDeephaven implements AutoCloseable {
                         settings.appId(), settings.httpHost(), settings.httpPort(), EmbedSettings.AUTH_MODE);
             }
             case PSK -> {
-                System.setProperty("AuthHandlers", "io.deephaven.authentication.psk.PskAuthenticationHandler");
+                System.setProperty("AuthHandlers", PSK_HANDLER);
                 settings.preSharedKey().ifPresent(key -> System.setProperty("authentication.psk", key));
             }
         }
@@ -201,6 +220,10 @@ public final class EmbeddedDeephaven implements AutoCloseable {
         EmbeddedComponentFactory.EmbeddedComponent component =
                 new EmbeddedComponentFactory(hostBindings).build(configuration);
 
+        upstreams.forEach((id, upstream) -> remotes.put(id,
+                new RemoteTables(upstream, () -> newSession(component, upstream), this::rerunApplicationScripts)));
+        hostBindings.remotes(remotes);
+
         DeephavenApiServer started = component.getServer().run();
         if (!sideEffects.replaceStandardStreams()) {
             System.setOut(out);
@@ -212,6 +235,55 @@ public final class EmbeddedDeephaven implements AutoCloseable {
         this.engine = new Engine(executionContext, started.getUpdateGraph());
         this.httpPort = started.server().getPort();
         this.server = started;
+    }
+
+    /** A session to another instance, built from this server's own scheduler, memory and channels. */
+    private static BarrageSession newSession(EmbeddedComponentFactory.EmbeddedComponent component,
+            UpstreamSettings upstream) {
+        SessionConfig.Builder login = SessionConfig.builder();
+        // Deephaven's resolver for dh:// addresses has no way to log in, so the session is made here.
+        upstream.preSharedKey().ifPresent(key -> login.authenticationTypeAndValue(PSK_HANDLER + " " + key));
+        return BarrageSessionFactoryConfig.builder()
+                .clientConfig(ClientConfig.builder().target(DeephavenTarget.of(URI.create(upstream.url()))).build())
+                .clientChannelFactory(component.clientChannelFactory())
+                .sessionConfig(login.build())
+                .allocator(component.allocator())
+                .scheduler(component.clientScheduler())
+                .build()
+                .factory()
+                .newBarrageSession();
+    }
+
+    /**
+     * Runs the scripts of the application modules again, in the order Deephaven ran them at start.
+     * This is how tables built on an upstream are rebuilt after the connection to it was lost: a
+     * table cannot be pointed at a new source, so the definitions are evaluated anew and their
+     * names then refer to new tables.
+     */
+    private void rerunApplicationScripts() {
+        ScriptSession session = requireRunning().scriptSession;
+        List<Path> applications;
+        try (Stream<Path> files = Files.list(applicationDir)) {
+            applications = files.filter(file -> file.getFileName().toString().endsWith(".app")).sorted().toList();
+        } catch (IOException e) {
+            throw new EmbeddedDeephavenException("Cannot list the application modules in " + applicationDir, e);
+        }
+        for (Path application : applications) {
+            Properties properties = new Properties();
+            try (Reader reader = Files.newBufferedReader(application)) {
+                properties.load(reader);
+            } catch (IOException e) {
+                throw new EmbeddedDeephavenException("Cannot read " + application, e);
+            }
+            if (!"script".equals(properties.getProperty("type")) || "false".equals(properties.getProperty("enabled"))) {
+                continue;
+            }
+            for (int i = 0; properties.getProperty("file_" + i) != null; i++) {
+                Path script = applicationDir.resolve(properties.getProperty("file_" + i).trim());
+                log.info("Running {} again", script);
+                session.evaluateScript(script).throwIfError();
+            }
+        }
     }
 
     private void onFatalError(String message, Throwable error) {
@@ -233,6 +305,7 @@ public final class EmbeddedDeephaven implements AutoCloseable {
         }
         state = State.STOPPED;
         log.info("Stopping embedded Deephaven '{}'", settings.appId());
+        remotes.values().forEach(RemoteTables::close);
         // Deephaven registers how to stop itself as shutdown tasks; run them now instead of at JVM exit.
         ProcessEnvironment.getGlobalShutdownManager().maybeInvokeTasks();
         server.getUpdateGraph().<PeriodicUpdateGraph>cast().stop();
@@ -326,6 +399,7 @@ public final class EmbeddedDeephaven implements AutoCloseable {
         private SideEffectPolicy sideEffects = SideEffectPolicy.deephavenDefaults();
         private Class<?> hostClass = EmbeddedDeephaven.class;
         private final Map<String, Object> bindings = new LinkedHashMap<>();
+        private final Map<String, UpstreamSettings> upstreams = new LinkedHashMap<>();
 
         private Builder() {}
 
@@ -353,6 +427,12 @@ public final class EmbeddedDeephaven implements AutoCloseable {
                         + " Got: " + name);
             }
             bindings.put(name, Objects.requireNonNull(object, "object"));
+            return this;
+        }
+
+        /** Another instance whose tables this one subscribes to; scripts reach it as {@code host.remote(id)}. */
+        public Builder upstream(UpstreamSettings upstream) {
+            upstreams.put(upstream.id(), upstream);
             return this;
         }
 

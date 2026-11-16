@@ -13,16 +13,18 @@ names, plugin ids and `DHC_*` keys is Deephaven Community Core.
 
 ## Status
 
-Phase P3 of seven: role A. A plain Java `main` starts Deephaven in its own JVM and shows mock
-order executions and the application's own order cache as five live tables (`exec_events`,
-`execs`, `orders`, `order_cache`, `cache_stats`). The subscriber (role B) and the Spring Boot
-host arrive in later phases, one pull request each.
+Phase P4 of seven: roles A and B, each in a plain Java host. Instance A shows mock order
+executions and the application's own order cache as five live tables. Instance B subscribes to
+A's tables, derives its own, and reconnects by itself when A goes away and comes back. The
+Spring Boot host arrives in the next phase.
 
 ```bash
-./gradlew :apps:dhc-a-java:run
+./gradlew :apps:dhc-a-java:run        # in one terminal
+./gradlew :apps:dhc-b-java:run        # in another; it waits for A
 ```
 
-then open <http://localhost:10000/ide/>. `run` is the development start: anonymous access, on
+then open <http://localhost:10000/ide/> for A and <http://localhost:10001/ide/> for B. In B,
+`feed_status` says whether A is connected. `run` is the development start: anonymous access, on
 localhost only. The installed distribution (`./gradlew :apps:dhc-a-java:installDist`, then
 `apps/dhc-a-java/build/install/dhc-a-java/bin/dhc-a-java`) asks for a key, which Deephaven prints
 at start unless `DHC_AUTH_PSK` supplies one.

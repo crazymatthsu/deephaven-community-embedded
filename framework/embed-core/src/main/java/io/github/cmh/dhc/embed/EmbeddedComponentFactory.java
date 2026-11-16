@@ -7,6 +7,7 @@ import dagger.Provides;
 import dagger.multibindings.IntoSet;
 import io.deephaven.appmode.ApplicationState;
 import io.deephaven.client.impl.BarrageSessionFactoryConfig;
+import io.deephaven.client.impl.ClientChannelFactory;
 import io.deephaven.configuration.Configuration;
 import io.deephaven.engine.context.ExecutionContext;
 import io.deephaven.engine.util.ScriptSession;
@@ -24,7 +25,9 @@ import io.deephaven.server.session.ClientChannelFactoryModule.UserAgent;
 import io.deephaven.server.session.SslConfigModule;
 import io.deephaven.server.util.Scheduler;
 import java.io.PrintStream;
+import org.apache.arrow.memory.BufferAllocator;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Provider;
 import javax.inject.Singleton;
 
@@ -66,6 +69,13 @@ final class EmbeddedComponentFactory extends ComponentFactoryBase<EmbeddedCompon
 
         /** Deephaven's timer threads, exposed so that stopping can end them. */
         Scheduler scheduler();
+
+        /** What a session to another instance is made of; the server's own, shared with it. */
+        ScheduledExecutorService clientScheduler();
+
+        BufferAllocator allocator();
+
+        ClientChannelFactory clientChannelFactory();
 
         @Component.Builder
         interface Builder extends JettyServerComponent.Builder<Builder, EmbeddedComponent> {

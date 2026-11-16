@@ -145,6 +145,21 @@ The feasibility spike, the design and this phase plan. No code.
   implemented re-subscription behave as written. Whichever is true is stated in the docs.
 - `feed_status` shows disconnected while A is down.
 
+**Found while building it** (findings F12 and F13, and the design):
+
+- Subscribing by address, as the spike did, cannot present a key. `RemoteTables` makes its own
+  session in every case.
+- B does not recover on its own: its tables fail within half a second of A going away and stay
+  failed. The implemented answer is to reconnect and run the application scripts again; the
+  limits (look tables up by name, reopen IDE panels, A's history is A's) are in the design and
+  each has a test.
+- A's `TransactTime` start has to be a setting (`DHC_GEN_START_TIME`), or a second process
+  cannot know what A's tables will contain.
+- The child process is started with `java` on the distribution's application jar, not with the
+  start script, so that it can be stopped the same way on every system. The start script has its
+  own check (`scripts/check-start.sh`).
+- The probe reads over Arrow Flight and needs no engine, so it is a client any script can run.
+
 ## P5. Spring Boot host
 
 **Delivers**

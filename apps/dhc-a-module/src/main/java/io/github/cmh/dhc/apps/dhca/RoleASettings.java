@@ -4,6 +4,7 @@ import io.github.cmh.dhc.embed.EmbedSettings;
 import io.github.cmh.dhc.embed.EmbeddedDeephavenException;
 import io.github.cmh.dhc.orders.GeneratorConfig;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 
 /**
  * What role A can be told: how the mock feed behaves and how much history the instance keeps.
@@ -14,7 +15,7 @@ import java.time.Instant;
  * @param openOrders how many orders are being filled at any moment
  * @param eventLimit the feed stops after this many executions; 0 means it never stops
  * @param ringCapacity how many executions the {@code execs} table keeps
- * @param startTime {@code TransactTime} of the first execution
+ * @param startTime {@code TransactTime} of the first execution; now, unless {@code DHC_GEN_START_TIME} says otherwise
  */
 public record RoleASettings(long seed, double eventsPerSecond, int openOrders, long eventLimit, int ringCapacity,
         Instant startTime) {
@@ -24,6 +25,7 @@ public record RoleASettings(long seed, double eventsPerSecond, int openOrders, l
     public static final String GEN_ORDERS = "DHC_GEN_ORDERS";
     public static final String GEN_EVENT_LIMIT = "DHC_GEN_EVENT_LIMIT";
     public static final String RING_CAPACITY = "DHC_RING_CAPACITY";
+    public static final String GEN_START_TIME = "DHC_GEN_START_TIME";
 
     public RoleASettings {
         require(eventsPerSecond > 0, GEN_RATE + " must be more than 0, but it is " + eventsPerSecond);
@@ -52,7 +54,16 @@ public record RoleASettings(long seed, double eventsPerSecond, int openOrders, l
                 Math.toIntExact(settings.longValue(GEN_ORDERS, defaults.openOrders)),
                 settings.longValue(GEN_EVENT_LIMIT, defaults.eventLimit),
                 Math.toIntExact(settings.longValue(RING_CAPACITY, defaults.ringCapacity)),
-                defaults.startTime);
+                settings.value(GEN_START_TIME).map(RoleASettings::parseStartTime).orElse(defaults.startTime));
+    }
+
+    private static Instant parseStartTime(String text) {
+        try {
+            return Instant.parse(text);
+        } catch (DateTimeParseException e) {
+            throw new EmbeddedDeephavenException(GEN_START_TIME + " must be a time like 2026-01-05T14:30:00Z, but it is '"
+                    + text + "'.");
+        }
     }
 
     /** What decides the events: the part of these settings the oracle needs too. */
