@@ -3,11 +3,15 @@
 Everything here runs on macOS bash 3.2, Linux and Windows Git Bash (there: `bash scripts/<name>`).
 No GNU-only flags, no associative arrays. Each script says at its top what it needs.
 
+`./gradlew checkScripts` (part of `check`) holds every script here and in `docker/` to that
+rule, by reading them: it names the line that uses something bash 3.2 or the BSD tools do not
+have. CI then runs them on all three systems.
+
 | Script | What |
 |---|---|
 | `check_env.sh` | Says whether this machine has what the build, the scripts and the containers need: bash, a Java 21, curl, a container runtime, the configuration, what is built. Changes nothing. |
 | `run.sh <app> [environment]` | Starts one application in the foreground, from what Gradle built, with the settings of one environment. Reads the heap and other JVM options from the configuration, because they cannot be set from inside the JVM. |
-| `demo.sh up [pair] \| down \| status \| logs [app]` | Starts instance A and then instance B in the background and stops them. `primary` is `dhc-a-java` with `dhc-b-spring`, `secondary` is `dhc-a-spring` with `dhc-b-java`. Logs and process ids are in `build/demo/<environment>/`. |
+| `demo.sh up [pair] \| down [app] \| status \| logs [app]` | Starts instance A and then instance B in the background and stops them. `down <app>` stops one of the two and waits until it is gone; `up` then starts it again and leaves the other running, which is how to watch B live through an outage of A. `primary` is `dhc-a-java` with `dhc-b-spring`, `secondary` is `dhc-a-spring` with `dhc-b-java`. Logs and process ids are in `build/demo/<environment>/`. |
 | `smoke.sh [pair]` | Checks a running pair from outside: both answer, and what B holds is what A has. Works against `demo.sh up` and against the containers of `docker/compose.yaml`. |
 | `check-start.sh <app> [port]` | Starts an installed plain Java host from its start script with nothing but its defaults, waits until its web IDE answers, and stops it. |
 | `sync-gradle-wrapper.sh` | Copies the Gradle download address from `config/repos/repos.env` (and `repos.local.env`) into `gradle/wrapper/gradle-wrapper.properties`. Needs no Gradle and no network. Run it after changing `DHC_GRADLE_DISTRIBUTIONS_URL` or the Gradle version; see [config/README.md](../config/README.md). |

@@ -16,25 +16,19 @@ import io.deephaven.server.util.Scheduler;
 import io.deephaven.uri.DeephavenTarget;
 import io.deephaven.util.process.ProcessEnvironment;
 import java.io.File;
-import java.io.IOException;
 import java.io.PrintStream;
-import java.io.Reader;
 import java.net.URI;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Properties;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -117,7 +111,10 @@ public final class EmbeddedDeephaven implements AutoCloseable {
                     + " instance needs a JVM of its own.");
         }
         state = State.STARTING;
-        applicationDir = AppModules.prepare(settings, classLoader());
+        // Deephaven names a script's class file after the path it is given, so it gets the
+        // shortest way to write the directory, and a path that is still too long is refused here.
+        applicationDir = AppModules.shortest(AppModules.prepare(settings, classLoader()), Path.of("").toAbsolutePath());
+        AppModules.checkScriptPaths(applicationDir);
         applyToDeephavenConfiguration(applicationDir);
 
         // Deephaven leaves an execution context open on the thread that starts it. On a thread of
@@ -265,27 +262,9 @@ public final class EmbeddedDeephaven implements AutoCloseable {
      */
     private void rerunApplicationScripts() {
         ScriptSession session = requireRunning().scriptSession;
-        List<Path> applications;
-        try (Stream<Path> files = Files.list(applicationDir)) {
-            applications = files.filter(file -> file.getFileName().toString().endsWith(".app")).sorted().toList();
-        } catch (IOException e) {
-            throw new EmbeddedDeephavenException("Cannot list the application modules in " + applicationDir, e);
-        }
-        for (Path application : applications) {
-            Properties properties = new Properties();
-            try (Reader reader = Files.newBufferedReader(application)) {
-                properties.load(reader);
-            } catch (IOException e) {
-                throw new EmbeddedDeephavenException("Cannot read " + application, e);
-            }
-            if (!"script".equals(properties.getProperty("type")) || "false".equals(properties.getProperty("enabled"))) {
-                continue;
-            }
-            for (int i = 0; properties.getProperty("file_" + i) != null; i++) {
-                Path script = applicationDir.resolve(properties.getProperty("file_" + i).trim());
-                log.info("Running {} again", script);
-                session.evaluateScript(script).throwIfError();
-            }
+        for (Path script : AppModules.scripts(applicationDir)) {
+            log.info("Running {} again", script);
+            session.evaluateScript(script).throwIfError();
         }
     }
 

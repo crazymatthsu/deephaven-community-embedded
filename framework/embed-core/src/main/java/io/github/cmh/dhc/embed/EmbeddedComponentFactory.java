@@ -24,6 +24,7 @@ import io.deephaven.server.session.ClientChannelFactoryModule;
 import io.deephaven.server.session.ClientChannelFactoryModule.UserAgent;
 import io.deephaven.server.session.SslConfigModule;
 import io.deephaven.server.util.Scheduler;
+import io.grpc.ServerInterceptor;
 import java.io.PrintStream;
 import org.apache.arrow.memory.BufferAllocator;
 import java.util.List;
@@ -113,6 +114,13 @@ final class EmbeddedComponentFactory extends ComponentFactoryBase<EmbeddedCompon
         static ApplicationState.Factory hostBindingsApplication(Provider<ScriptSession> scriptSession,
                 HostBindings hostBindings) {
             return new HostBindingsApplication(scriptSession, hostBindings);
+        }
+
+        /** Saved layouts and notebooks on Windows (finding F11). Does nothing elsewhere. */
+        @Provides
+        @IntoSet
+        static ServerInterceptor storagePaths() {
+            return new StoragePaths();
         }
     }
 

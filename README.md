@@ -11,41 +11,67 @@ Community Core only. Every Deephaven dependency is an open-source `io.deephaven`
 Maven Central; nothing here uses or needs Deephaven Enterprise. The short name `dhc` in package
 names, plugin ids and `DHC_*` keys is Deephaven Community Core.
 
-## Status
+## From clone to both UIs
 
-Phase P6 of seven: both roles in both kinds of host, settings as files for dev, uat and prod,
-scripts that start and check a pair of instances, and container images.
+You need a **JDK 21** (a JDK, not a JRE) on the `PATH` or in `JAVA_HOME`, plus `git`, `bash`
+and `curl`. macOS and Linux have the last three; on Windows, Git for Windows brings all of them
+and every command below is typed in Git Bash. Nothing else is installed by hand: the Gradle
+wrapper downloads Gradle and the libraries, from Maven Central and the Gradle plugin portal.
+
+```bash
+git clone https://github.com/crazymatthsu/deephaven-community-embedded.git
+cd deephaven-community-embedded
+./gradlew installDist extractBootJar    # build every application; some minutes the first time
+bash scripts/check_env.sh               # does this machine have what is needed?
+bash scripts/demo.sh up                 # start instance A, wait for it, start instance B
+```
+
+`demo.sh up` ends by printing the addresses. Open them in a browser:
+
+| Address | What you see |
+|---|---|
+| <http://localhost:10000/ide/> | **Instance A's Deephaven web IDE.** In the Panels menu: `orders`, `execs`, `exec_events`, `order_cache`, `cache_stats`. Open `orders` and watch it tick. |
+| <http://localhost:10001/ide/> | **Instance B's Deephaven web IDE.** `orders_a` and `execs_a` are A's tables, subscribed; `cum_by_symbol`, `exec_rate` and `open_orders` are derived from them; `feed_status` says whether A is connected. |
+| <http://localhost:8081/> | B's own page, served by Spring Boot: numbers from its REST API and two live Deephaven tables embedded in it. |
+
+Then check it and stop it:
+
+```bash
+bash scripts/smoke.sh                   # B holds what A has; ends with "smoke: passed"
+bash scripts/demo.sh down
+```
+
+To see the pair live through an outage, stop only A while both are up and start it again:
+
+```bash
+bash scripts/demo.sh down dhc-a-java    # takes about ten seconds while B is connected
+bash scripts/demo.sh up                 # starts A again; B is left running
+```
+
+In between, B's page and `feed_status` say the feed is disconnected and keep the last rows.
+After the second command B reconnects by itself and rebuilds its tables.
+
+If a step fails, it says why. [docs/04-troubleshooting.md](docs/04-troubleshooting.md) is
+ordered by the message you see.
+
+## What is here
 
 - **Instance A** shows mock order executions and the application's own order cache as five live
   tables.
 - **Instance B** subscribes to A's tables, derives its own, and reconnects by itself when A goes
   away and comes back.
 - Each runs in a plain Java host (`dhc-a-java`, `dhc-b-java`) or in a Spring Boot application
-  (`dhc-a-spring`, `dhc-b-spring`). In Spring Boot, B also has a REST API, health indicators and
-  a page of its own with Deephaven's tables embedded in it.
+  (`dhc-a-spring`, `dhc-b-spring`). `demo.sh up` starts A in plain Java and B in Spring Boot;
+  `demo.sh up secondary` starts the other pair.
+- A Spring host has two ports: Spring MVC (8081 for B) for its REST API, health and page, and
+  Deephaven's own server (10001 for B) for the web IDE and the tables.
 
-### Try it
-
-```bash
-./gradlew installDist extractBootJar    # build every application
-scripts/check_env.sh                    # does this machine have what is needed?
-scripts/demo.sh up                      # start A, then B
-scripts/smoke.sh                        # check that B holds what A has
-scripts/demo.sh down
-```
-
-On Windows, in Git Bash: `bash scripts/demo.sh up`. While the pair is up:
-
-| Address | What |
+| Address, while the primary pair is up | What |
 |---|---|
-| <http://localhost:8081/> | B's own page: numbers from its REST API, two live Deephaven tables |
 | <http://localhost:8081/api/summary> | totals, and whether A is connected |
+| <http://localhost:8081/api/orders/O0000001> | one order, read from a live Deephaven table |
 | <http://localhost:8081/actuator/health> | `deephaven` and `dhc-a`; stop A and `dhc-a` goes down |
-| <http://localhost:10001/ide/> | B's Deephaven web IDE; `feed_status` says whether A is connected |
-| <http://localhost:10000/ide/> | A's Deephaven web IDE |
-
-A Spring host has two ports: Spring MVC on 8081, Deephaven's own server on 10001.
-`scripts/demo.sh up secondary` runs the other pair, A in Spring Boot and B in plain Java.
+| <http://localhost:8081/actuator/health/liveness>, `/readiness` | "is this process well" and "can it do what it is for" |
 
 ### Other ways to start
 
@@ -62,11 +88,21 @@ variables. Spring Boot's fat jar is not a way to run an application here: Deepha
 formulas with `javac`, which cannot read a jar inside a jar, so the application refuses to
 start from one and says so. For the same reason it needs a JDK, not a JRE.
 
+## Documents
+
 | Document | What it holds |
 |---|---|
-| [docs/00-feasibility-spike.md](docs/00-feasibility-spike.md) | what was run and what it showed: sixteen findings, including the three that would have broken a naive attempt |
+| [docs/03-runbook.md](docs/03-runbook.md) | running it: start, check, stop, where the logs are, changing a setting, what happens when A goes away |
+| [docs/04-troubleshooting.md](docs/04-troubleshooting.md) | symptom, cause, fix, for everything that went wrong while this was built |
+| [docs/05-upgrade-checklist.md](docs/05-upgrade-checklist.md) | moving to another Deephaven version: the one class with the module list, what else to look at, what to run |
+| [docs/00-feasibility-spike.md](docs/00-feasibility-spike.md) | what was run and what it showed: seventeen findings, including the three that would have broken a naive attempt |
 | [docs/01-design.md](docs/01-design.md) | architecture, repository layout, build logic, the framework, the two roles, configuration for dev / UAT / production, packaging, testing, risks |
-| [docs/02-implementation-phases.md](docs/02-implementation-phases.md) | seven phases with deliverables and acceptance checks, and the decisions still open |
+| [docs/02-implementation-phases.md](docs/02-implementation-phases.md) | the seven phases it was built in, with what each found that the plan had wrong |
+| [config/](config/README.md), [scripts/](scripts/README.md), [docker/](docker/README.md), [build-logic/](build-logic/README.md) | each directory's own README |
+
+All seven phases are built. Not done, and listed as open in the documents above: one-port mode
+(the Spring application serving Deephaven's UI itself), Spring Boot 4.x, and TLS between the
+instances.
 
 ## Build
 
@@ -77,8 +113,11 @@ Central and the Gradle plugin portal only.
 ./gradlew check
 ```
 
-`check` compiles every module, runs `verifyDeephavenAlignment` for the four host applications
-and runs the build-logic tests. Behind a company mirror, see [config/README.md](config/README.md).
+`check` compiles every module and runs the unit and engine tests, `verifyDeephavenAlignment`
+for every application, `validateConfig`, `checkScripts`, `checkDocs` and the build-logic tests.
+`./gradlew integrationTest` runs the tests that need two processes. CI runs both, and then the
+applications as shipped, on Linux, macOS and Windows.
+Behind a company mirror, see [config/README.md](config/README.md).
 The build rules and where each comes from are in [build-logic/README.md](build-logic/README.md).
 
 ## Layout
@@ -88,9 +127,9 @@ build-logic/   convention plugins, and the settings plugin that declares every r
 framework/     shared Java code: embed-core, embed-spring, embed-testkit, orders-model
 apps/          embedded applications: dhc-a-module, dhc-b-module, dhc-a-java, dhc-b-spring, ...
 config/        settings per application and per environment, artifact sources
-scripts/       run, demo, smoke
+scripts/       run, demo, smoke, check_env
 docker/        images and compose
-docs/
+docs/          findings, design, phases, runbook, troubleshooting, upgrade checklist
 ```
 
 ## Licence

@@ -2,7 +2,8 @@
 # Starts instance A and then instance B on this machine, in the background, and stops them.
 #
 # Usage: scripts/demo.sh up [pair]     start A, wait for it, start B, wait for it
-#        scripts/demo.sh down          stop B, then A
+#        scripts/demo.sh down [app]    stop B, then A; or only the one named, and wait until it
+#                                      is gone (stop A alone to watch B live through it)
 #        scripts/demo.sh status        which of the two run and answer
 #        scripts/demo.sh logs [app]    the last lines of their logs
 #        (bash scripts/demo.sh ... on Windows)
@@ -163,11 +164,20 @@ case "$command" in
         done
         ;;
     down)
-        # B first: it then sees no outage, and A is not asked for anything while it stops.
+        only=${2:-}
         # shellcheck disable=SC2046
         set -- $(dhc_pair_apps "$(current_pair)")
-        stop "$2"
-        stop "$1"
+        if [ -n "$only" ]; then
+            if [ "$only" != "$1" ] && [ "$only" != "$2" ]; then
+                dhc_fail "$only is not one of the $(current_pair) pair in '$environment' ($1, $2)"
+            fi
+            stop "$only"
+            dhc_say "scripts/demo.sh up starts it again and leaves the other one running"
+        else
+            # B first: it then sees no outage, and A is not asked for anything while it stops.
+            stop "$2"
+            stop "$1"
+        fi
         ;;
     status)
         pair=$(current_pair)
@@ -198,6 +208,6 @@ case "$command" in
         done
         ;;
     *)
-        dhc_fail "usage: scripts/demo.sh up [primary|secondary] | down | status | logs [app]"
+        dhc_fail "usage: scripts/demo.sh up [primary|secondary] | down [app] | status | logs [app]"
         ;;
 esac

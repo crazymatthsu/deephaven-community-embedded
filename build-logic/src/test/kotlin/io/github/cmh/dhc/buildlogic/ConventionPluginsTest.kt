@@ -204,6 +204,111 @@ class ConventionPluginsTest {
         assertContains(result, "env/prod.env does not exist")
     }
 
+    @Test
+    fun `checkDocs passes when every link leads to a file and a heading`() {
+        val result = fixture("docs-check", ":docs:checkDocs").build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":docs:checkDocs")?.outcome)
+        // Seven links: other sites, a code block and a code span are not counted.
+        assertContains(result, "checkDocs: 2 documents, 7 links between them, none broken.")
+    }
+
+    @Test
+    fun `checkDocs fails on a link to a file that is not there`() {
+        val runner = fixture("docs-check", ":docs:checkDocs")
+        File(runner.projectDir, "docs/guide.md").renameTo(File(runner.projectDir, "docs/manual.md"))
+
+        val result = runner.buildAndFail()
+
+        assertContains(result, "README.md line 3: [docs/guide.md] points at docs/guide.md, which does not exist.")
+        assertContains(result, "README.md line 4: [docs/guide.md#when-it-fails-f3-and-the-jvm-flags] points at docs/guide.md, which does not exist.")
+    }
+
+    @Test
+    fun `checkDocs fails on a link to a heading that was renamed, and names the headings there are`() {
+        val runner = fixture("docs-check", ":docs:checkDocs")
+        val guide = File(runner.projectDir, "docs/guide.md")
+        guide.writeText(guide.readText().replace("## When it fails: F3", "## If it fails: F3"))
+
+        val result = runner.buildAndFail()
+
+        assertContains(result, "checkDocs found 1 broken link(s) in 2 document(s)")
+        assertContains(result, "README.md line 4: [docs/guide.md#when-it-fails-f3-and-the-jvm-flags] names a heading that docs/guide.md does not have.")
+        assertContains(result, "Its headings are: #guide, #if-it-fails-f3-and-the-jvm-flags, #step, #step-1")
+    }
+
+    @Test
+    fun `checkDocs fails on a link that leaves the repository`() {
+        val runner = fixture("docs-check", ":docs:checkDocs")
+        File(runner.projectDir, "README.md").appendText("\nSee [the notes](../notes.md).\n")
+
+        val result = runner.buildAndFail()
+
+        assertContains(result, "README.md line 14: [../notes.md] points outside the repository.")
+    }
+
+    @Test
+    fun `checkScripts passes for scripts that keep to bash 3_2 and the BSD tools`() {
+        val result = fixture("scripts-check", ":scripts:checkScripts").build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":scripts:checkScripts")?.outcome)
+        assertContains(result, "checkScripts: 3 scripts, nothing that bash 3.2 or the BSD tools would refuse.")
+    }
+
+    @Test
+    fun `checkScripts fails on what bash 3_2 and the BSD tools do not have, each with its line`() {
+        val runner = fixture("scripts-check", ":scripts:checkScripts")
+        File(runner.projectDir, "scripts/hello.sh").appendText(
+            listOf(
+                "declare -A seen",
+                "echo \"\${name^^}\"",
+                "sed -i 's/a/b/' file.txt",
+                "if timeout 5 curl -s http://localhost/; then echo up; fi",
+                "mapfile -t lines < file.txt",
+                "ls |& grep -P 'x'",
+                "",
+            ).joinToString("\n")
+        )
+
+        val result = runner.buildAndFail()
+
+        assertContains(result, "checkScripts found 7 problem(s) in 3 script(s)")
+        assertContains(result, "scripts/hello.sh line 13: an associative array; bash 3.2 has none: declare -A seen")
+        assertContains(result, "scripts/hello.sh line 14: \${name^^} or \${name,,}; bash 3.2 has neither. Use tr")
+        assertContains(result, "scripts/hello.sh line 15: sed -i; GNU and BSD sed disagree about it")
+        assertContains(result, "scripts/hello.sh line 16: the timeout command; macOS has none")
+        assertContains(result, "scripts/hello.sh line 17: mapfile/readarray; bash 3.2 has neither")
+        assertContains(result, "scripts/hello.sh line 18: |&; bash 3.2 has none")
+        assertContains(result, "scripts/hello.sh line 18: grep -P; BSD grep has none")
+    }
+
+    @Test
+    fun `checkScripts fails on Windows line endings, another shell and a script that does not stop at errors`() {
+        val runner = fixture("scripts-check", ":scripts:checkScripts")
+        val hello = File(runner.projectDir, "scripts/hello.sh")
+        hello.writeText(hello.readText().replace("\n", "\r\n"))
+        File(runner.projectDir, "docker/entry.sh").writeText("#!/bin/sh\nset -eu\nexec \"\$@\"\n")
+        File(runner.projectDir, "scripts/careless.sh").writeText("#!/usr/bin/env bash\necho hello\n")
+        File(runner.projectDir, "scripts/headless.sh").writeText("echo hello\n")
+
+        val result = runner.buildAndFail()
+
+        assertContains(result, "scripts/hello.sh: has Windows line endings")
+        assertContains(result, "docker/entry.sh line 1: starts with '#!/bin/sh'. Write #!/usr/bin/env bash")
+        assertContains(result, "scripts/careless.sh: has no 'set -eu'")
+        assertContains(result, "scripts/headless.sh line 1: a script starts with #!/usr/bin/env bash")
+    }
+
+    @Test
+    fun `checkScripts lets a line through that says it is meant`() {
+        val runner = fixture("scripts-check", ":scripts:checkScripts")
+        File(runner.projectDir, "scripts/hello.sh").appendText("sed -i.bak 's/a/b/' file.txt # checkScripts: allow\n")
+
+        val result = runner.build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":scripts:checkScripts")?.outcome)
+    }
+
     private fun assertFlags(result: BuildResult, vararg tasks: String) {
         for (task in tasks) {
             val line = result.output.lineSequence().firstOrNull { it.startsWith("flags of $task: ") }

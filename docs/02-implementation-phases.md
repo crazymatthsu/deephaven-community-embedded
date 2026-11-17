@@ -276,6 +276,48 @@ The feasibility spike, the design and this phase plan. No code.
 - A new reader gets from clone to both UIs with the README alone.
 - CI is green on Linux, macOS and Windows.
 
+**Found while building it** (finding F11, and the design):
+
+- The Windows item the plan left open had a fix that could be tested without a browser. F11
+  said the web IDE's layouts and notebooks needed "a Windows machine or a browser test in CI".
+  The requests the web IDE sends are plain gRPC, so a test sends them, and on the Windows
+  runner it fails without the interceptor that now rewrites the paths. The start was already
+  worked around; this closes the other half. The web IDE itself, in a browser on Windows, is
+  still not seen.
+- The answers needed rewriting too, not only the requests. The storage service builds the paths
+  of a listing from the platform's separator, so on Windows it would name a file
+  `/layouts\main.json`, which the web IDE cannot ask for again.
+- The design promised a `shellcheck` task for the scripts, and there was none: `scripts/` had
+  only the `base` plugin. A real shellcheck is a program the build would have to download from
+  somewhere that is not Maven Central. `checkScripts` reads the scripts as text instead and
+  looks for exactly what the rule forbids: what bash learned after 3.2, and options only the
+  GNU tools have. It answers the same on every machine.
+- "Link checks arrive in phase P7" is `checkDocs`. It follows links between the repository's
+  own files and headings and no link to another site, so the build still needs no network
+  beyond its repositories.
+- The failure catalogue did not stop at F10. The troubleshooting guide covers F2 to F17 and
+  what P2 to P6 met without giving it a number: the lock order between host code and a
+  reconnect, the Windows command-line limits, Podman on macOS, the smoke check's keys.
+- The upgrade checklist names one class for the module list, as planned, and fourteen more
+  places that rely on something Deephaven does not promise: property names, one thread name,
+  the three JVM flags, the address of an embedded table.
+- Following the README in a fresh clone found a failure no test had: the clone sat in a deep
+  directory, and instance A did not start, with "File name too long" (finding F17). Deephaven
+  makes a file name of an application script's whole path. The framework now gives Deephaven
+  the path relative to where the JVM started when that is shorter, and refuses what is still
+  too long with a message that says so.
+- The README's own outage step was wrong when it was first tried. It said to stop A and start
+  it again; an A that is asked to stop while B is connected takes ten seconds, so the second
+  command found it still running. `scripts/demo.sh down <app>` now stops one application and
+  waits until it is gone. The same trial showed that B learns of an orderly stop at the start
+  of those ten seconds in one run and at their end in another; F13 had only measured a kill.
+  The runbook says what to look at in between.
+- The macOS runner needed no fix: every script already ran there, because the development
+  machine is one. It has no container runtime, so the image steps stay on Linux.
+- The three stretch items are not in this pull request: one-port mode, the Spring Boot 4.x
+  spike and TLS between A and B. Each is separate work, and none is needed for the acceptance
+  checks.
+
 ## What is deliberately out of scope
 
 - Deephaven Enterprise. This project is Deephaven Community Core only: no Enterprise artifact,
